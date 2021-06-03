@@ -1,0 +1,30 @@
+[package]
+name = "mod-mapper"
+version = "0.1.0"
+authors = ["Tyler Hallada <tyler@hallada.net>"]
+edition = "2018"
+description = "Saves Skyrim mod cell edits to a database"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+argh = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+# Need this fix for broken build: https://github.com/OSSystems/compress-tools-rs/commit/9c0f4cba975a45734e329edd5db9d188120275f8
+compress-tools = { git = "https://github.com/OSSystems/compress-tools-rs.git" }
+dotenv = "0.15"
+futures = "0.3"
+infer = { version = "0.4", default-features = false }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+scraper = "0.12"
+seahash = "4.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.5", features = ["runtime-tokio-native-tls", "postgres", "migrate", "chrono"] }
+skyrim-cell-dump = "0.1.2"
+tempfile = "3.2"
+tokio = { version = "1.5.0", features = ["full"] }
+tokio-util = { version = "0.6", features = ["compat"] }
+# Need `ZipWriter::append_new` from https://github.com/zip-rs/zip/commit/ce272616ac69b798bb7b0925147a8a710dc2bb65
+zip = { git = "https://github.com/zip-rs/zip.git" }
