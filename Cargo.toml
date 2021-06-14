@@ -22,7 +22,7 @@ seahash = "4.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sqlx = { version = "0.5", features = ["runtime-tokio-native-tls", "postgres", "migrate", "chrono"] }
-skyrim-cell-dump = "0.1.2"
+skyrim-cell-dump = "0.1.3"
 tempfile = "3.2"
 tokio = { version = "1.5.0", features = ["full"] }
 tokio-util = { version = "0.6", features = ["compat"] }
