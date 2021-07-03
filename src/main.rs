@@ -16,12 +16,14 @@ use sqlx::postgres::PgPoolOptions;
 use std::convert::TryInto;
 use std::env;
 use std::fs::OpenOptions;
+use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
-use tempfile::tempfile;
+use tempfile::{tempfile, tempdir};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
+use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
 
 static USER_AGENT: &str = "mod-mapper/0.1";
@@ -266,17 +268,18 @@ async fn insert_plugin_cell(
 }
 
 fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Duration>> {
+    dbg!(res.headers().get("x-rl-daily-remaining"));
     let daily_remaining = res
         .headers()
-        .get("X-RL-Daily-Remaining")
-        .expect("No daily limit in response headers");
+        .get("x-rl-daily-remaining")
+        .expect("No daily remaining in response headers");
     let hourly_remaining = res
         .headers()
-        .get("X-RL-Hourly-Remaining")
+        .get("x-rl-hourly-remaining")
         .expect("No hourly limit in response headers");
     let hourly_reset = res
         .headers()
-        .get("X-RL-Hourly-Reset")
+        .get("x-rl-hourly-reset")
         .expect("No hourly reset in response headers");
     dbg!(daily_remaining);
     dbg!(hourly_remaining);
@@ -295,6 +298,66 @@ fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Duration
     }
 
     Ok(None)
+}
+
+async fn process_plugin<W>(
+    plugin_buf: &[u8],
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    plugin_archive: &mut ZipWriter<W>,
+    name: &str,
+    db_file: &File,
+    mod_obj: &Mod,
+    file_id: i64,
+    file_name: &str,
+) -> Result<()>
+    where W: std::io::Write + std::io::Seek
+{
+    let plugin = parse_plugin(&plugin_buf)?;
+    let hash = seahash::hash(&plugin_buf);
+    let plugin_row = insert_plugin(
+        &pool,
+        name,
+        hash as i64,
+        db_file.id,
+        Some(plugin.header.version as f64),
+        plugin.header.author,
+        plugin.header.description,
+        Some(
+            &plugin
+                .header
+                .masters
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>(),
+        ),
+    )
+    .await?;
+    for cell in plugin.cells {
+        let cell_row = insert_cell(
+            &pool,
+            cell.form_id.try_into().unwrap(),
+            cell.x,
+            cell.y,
+            cell.is_persistent,
+        )
+        .await?;
+        insert_plugin_cell(
+            &pool,
+            plugin_row.id,
+            cell_row.id,
+            cell.editor_id,
+        )
+        .await?;
+    }
+    plugin_archive.start_file(
+        format!(
+            "{}/{}/{}/{}",
+            GAME_NAME, mod_obj.nexus_mod_id, file_id, file_name
+        ),
+        FileOptions::default(),
+    )?;
+    std::io::copy(plugin_buf, plugin_archive)?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -433,6 +496,7 @@ pub async fn main() -> Result<()> {
                     .ok_or_else(|| anyhow!("Missing file_id key in file in API response"))?
                     .as_i64()
                     .ok_or_else(|| anyhow!("file_id value in API response file is not a number"))?;
+                let file_id = 18422; // DELETEME: temp test bad rar file
                 dbg!(file_id);
                 let name = file
                     .get("name")
@@ -492,6 +556,8 @@ pub async fn main() -> Result<()> {
                     .await?
                     .error_for_status()?;
 
+                let duration = rate_limit_wait_duration(&res)?;
+
                 let links = res.json::<Value>().await?;
                 let link = links
                     .get(0)
@@ -509,8 +575,6 @@ pub async fn main() -> Result<()> {
                     .send()
                     .await?
                     .error_for_status()?;
-
-                let duration = rate_limit_wait_duration(&res)?;
 
                 // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
                 let mut byte_stream = res
@@ -571,10 +635,51 @@ pub async fn main() -> Result<()> {
                     //         std::io::copy(&mut file, &mut plugin_archive)?;
                     //     }
                     // }
+
+                    // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
+                    // certain .rar files: https://github.com/libarchive/libarchive/issues/373
+                    "application/x-rar-compressed" => {
+                        tokio_file.seek(SeekFrom::Start(0)).await?;
+                        let mut file = tokio_file.into_std().await;
+                        let temp_dir = tempdir()?;
+                        let temp_file_path = temp_dir.path().join("download.rar");
+                        let mut temp_file = std::fs::File::create(temp_file_path)?;
+                        std::io::copy(&mut file, &mut temp_file)?;
+                        
+                        let mut plugin_file_paths = Vec::new();
+                        let list = Archive::new(temp_file_path.to_string_lossy().to_string()).list();
+                        if let Ok(list) = list {
+                            for entry in list {
+                                if let Ok(entry) = entry {
+                                    if entry.filename.ends_with(".esp")
+                                        || entry.filename.ends_with(".esm")
+                                        || entry.filename.ends_with(".esl")
+                                    {
+                                        plugin_file_paths.push(entry.filename);
+                                    }
+                                }
+                            }
+                    }
+
+                        if plugin_file_paths.len() > 0 {
+                            let extract = Archive::new(temp_file_path.to_string_lossy().to_string()).extract_to(temp_dir.path().to_string_lossy().to_string());
+                            extract.expect("failed to extract").process().expect("failed to extract");
+                            for file_name in plugin_file_paths.iter() {
+                                dbg!(file_name);
+                                let plugin_file = std::fs::File::open(temp_dir.path().join(file_name))?;
+                                let mut plugin_buf = Vec::new();
+                                plugin_file.read(&mut plugin_buf)?;
+                                process_plugin(&plugin_buf, &pool, &mut plugin_archive, name, &db_file, &mod_obj, file_id, file_name).await?;
+                            }
+                            dbg!("uncompressed!");
+                        }
+                        temp_dir.close()?;
+                    },
                     _ => {
                         tokio_file.seek(SeekFrom::Start(0)).await?;
                         let mut file = tokio_file.into_std().await;
                         let mut plugin_file_paths = Vec::new();
+
                         for file_name in list_archive_files(&file)? {
                             if file_name.ends_with(".esp")
                                 || file_name.ends_with(".esm")
@@ -583,56 +688,13 @@ pub async fn main() -> Result<()> {
                                 plugin_file_paths.push(file_name);
                             }
                         }
+
                         for file_name in plugin_file_paths.iter() {
                             file.seek(SeekFrom::Start(0))?;
                             dbg!(file_name);
                             let mut buf = Vec::default();
                             uncompress_archive_file(&mut file, &mut buf, file_name)?;
-                            let plugin = parse_plugin(&buf)?;
-                            let hash = seahash::hash(&buf);
-                            let plugin_row = insert_plugin(
-                                &pool,
-                                name,
-                                hash as i64,
-                                db_file.id,
-                                Some(plugin.header.version as f64),
-                                plugin.header.author,
-                                plugin.header.description,
-                                Some(
-                                    &plugin
-                                        .header
-                                        .masters
-                                        .iter()
-                                        .map(|s| s.to_string())
-                                        .collect::<Vec<String>>(),
-                                ),
-                            )
-                            .await?;
-                            for cell in plugin.cells {
-                                let cell_row = insert_cell(
-                                    &pool,
-                                    cell.form_id.try_into().unwrap(),
-                                    cell.x,
-                                    cell.y,
-                                    cell.is_persistent,
-                                )
-                                .await?;
-                                insert_plugin_cell(
-                                    &pool,
-                                    plugin_row.id,
-                                    cell_row.id,
-                                    cell.editor_id,
-                                )
-                                .await?;
-                            }
-                            plugin_archive.start_file(
-                                format!(
-                                    "{}/{}/{}/{}",
-                                    GAME_NAME, mod_obj.nexus_mod_id, file_id, file_name
-                                ),
-                                FileOptions::default(),
-                            )?;
-                            std::io::copy(&mut buf.as_slice(), &mut plugin_archive)?;
+                            process_plugin(&buf, &pool, &mut plugin_archive, name, &db_file, &mod_obj, file_id, file_name).await?;
                         }
                     }
                 };
@@ -641,10 +703,13 @@ pub async fn main() -> Result<()> {
                 if let Some(duration) = duration {
                     sleep(duration).await;
                 }
+                break;
             }
+            break;
         }
 
         page += 1;
+        break;
     }
 
     Ok(())
