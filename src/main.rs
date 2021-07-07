@@ -5,7 +5,6 @@ use chrono::NaiveDateTime;
 use chrono::Utc;
 use compress_tools::{list_archive_files, uncompress_archive_file};
 use dotenv::dotenv;
-use futures::future::try_join_all;
 use futures::stream::TryStreamExt;
 use reqwest::Response;
 use scraper::{Html, Selector};
@@ -121,6 +120,20 @@ async fn insert_game(
     .context("Failed to insert game")
 }
 
+async fn get_mod_by_nexus_mod_id(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    nexus_mod_id: i32,
+) -> Result<Option<Mod>> {
+    sqlx::query_as!(
+        Mod,
+        "SELECT * FROM mods WHERE nexus_mod_id = $1",
+        nexus_mod_id,
+    )
+    .fetch_optional(pool)
+    .await
+    .context("Failed to get mod")
+}
+
 async fn insert_mod(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,
@@ -148,7 +161,7 @@ async fn insert_mod(
     )
     .fetch_one(pool)
     .await
-    .context("Failed to insert mod")
+    .context("Failed to insert or update mod")
 }
 
 async fn insert_file(
@@ -366,9 +379,9 @@ pub async fn main() -> Result<()> {
     let client = reqwest::Client::new();
 
     let mut page: i32 = 1;
-    let mut last_page: i32 = 1;
+    let mut has_next_page = true;
 
-    while page <= last_page {
+    while has_next_page {
         let res = client
             .get(format!(
                 "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,include_adult:true,page_size:80,show_game_filter:false,open:false,page:{},sort_by:OLD_u_downloads",
@@ -390,23 +403,15 @@ pub async fn main() -> Result<()> {
             Selector::parse("div.category a").expect("failed to parse CSS selector");
         let author_select = Selector::parse("div.author a").expect("failed to parse CSS selector");
         let desc_select = Selector::parse("p.desc").expect("failed to parse CSS selector");
-        let last_page_select =
-            Selector::parse("div.pagination li.extra a").expect("failed to parse CSS selector");
+        let next_page_select =
+            Selector::parse("div.pagination li.next").expect("failed to parse CSS selector");
 
-        let last_page_elem = document
-            .select(&last_page_select)
-            .next()
-            .expect("Missing last page link");
-        last_page = last_page_elem
-            .text()
-            .next()
-            .expect("Missing last page text")
-            .trim()
-            .parse::<i32>()
-            .ok()
-            .expect("Failed to parse last page");
+        let next_page_elem = document.select(&next_page_select).next();
 
-        let mods = try_join_all(document.select(&mod_select).map(|element| {
+        has_next_page = next_page_elem.is_some();
+
+        let mut mods = vec![];
+        for element in document.select(&mod_select) {
             let left = element
                 .select(&left_select)
                 .next()
@@ -448,9 +453,14 @@ pub async fn main() -> Result<()> {
                 .next()
                 .expect("Missing desc elem for mod");
             let desc = desc_elem.text().next();
-            insert_mod(&pool, name, nexus_mod_id, author, category, desc, game.id)
-        }))
-        .await?;
+
+            if let None = get_mod_by_nexus_mod_id(&pool, nexus_mod_id).await? {
+                mods.push(
+                    insert_mod(&pool, name, nexus_mod_id, author, category, desc, game.id).await?,
+                );
+            }
+        }
+        dbg!(mods.len());
 
         for mod_obj in mods {
             dbg!(&mod_obj.name);
@@ -602,104 +612,52 @@ pub async fn main() -> Result<()> {
                 tokio_file.read_exact(&mut initial_bytes).await?;
                 let kind = infer::get(&initial_bytes).expect("unknown file type of file download");
                 dbg!(kind.mime_type());
-                match kind.mime_type() {
-                    // "application/zip" => {
-                    //     let mut archive = ZipArchive::new(reader)?;
-                    //     let mut plugin_file_paths = Vec::new();
-                    //     for file_name in archive.file_names() {
-                    //         dbg!(file_name);
-                    //         if file_name.ends_with(".esp")
-                    //             || file_name.ends_with(".esm")
-                    //             || file_name.ends_with(".esl")
-                    //         {
-                    //             plugin_file_paths.push(file_name.to_string());
-                    //         }
-                    //     }
-                    //     dbg!(&plugin_file_paths);
-                    //     for file_name in plugin_file_paths.iter() {
-                    //         let mut file = archive.by_name(file_name)?;
-                    //         let plugin = parse_plugin(file)?;
-                    //         dbg!(plugin);
-                    //         plugin_archive.start_file(
-                    //             format!("{}/{}/{}/{}", GAME_NAME, mod_id, file_id, file_name),
-                    //             FileOptions::default(),
-                    //         )?;
-                    //         std::io::copy(&mut file, &mut plugin_archive)?;
-                    //     }
-                    // }
+                // "application/zip" => {
+                //     let mut archive = ZipArchive::new(reader)?;
+                //     let mut plugin_file_paths = Vec::new();
+                //     for file_name in archive.file_names() {
+                //         dbg!(file_name);
+                //         if file_name.ends_with(".esp")
+                //             || file_name.ends_with(".esm")
+                //             || file_name.ends_with(".esl")
+                //         {
+                //             plugin_file_paths.push(file_name.to_string());
+                //         }
+                //     }
+                //     dbg!(&plugin_file_paths);
+                //     for file_name in plugin_file_paths.iter() {
+                //         let mut file = archive.by_name(file_name)?;
+                //         let plugin = parse_plugin(file)?;
+                //         dbg!(plugin);
+                //         plugin_archive.start_file(
+                //             format!("{}/{}/{}/{}", GAME_NAME, mod_id, file_id, file_name),
+                //             FileOptions::default(),
+                //         )?;
+                //         std::io::copy(&mut file, &mut plugin_archive)?;
+                //     }
+                // }
 
-                    // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
-                    // certain .rar files: https://github.com/libarchive/libarchive/issues/373
-                    "application/x-rar-compressed" | "application/vnd.rar" => {
-                        tokio_file.seek(SeekFrom::Start(0)).await?;
-                        let mut file = tokio_file.into_std().await;
-                        let temp_dir = tempdir()?;
-                        let temp_file_path = temp_dir.path().join("download.rar");
-                        let mut temp_file = std::fs::File::create(&temp_file_path)?;
-                        std::io::copy(&mut file, &mut temp_file)?;
+                // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
+                // certain .rar files: https://github.com/libarchive/libarchive/issues/373
+                tokio_file.seek(SeekFrom::Start(0)).await?;
+                let mut file = tokio_file.try_clone().await?.into_std().await;
+                let mut plugin_file_paths = Vec::new();
 
-                        let mut plugin_file_paths = Vec::new();
-                        let list =
-                            Archive::new(temp_file_path.to_string_lossy().to_string()).list();
-                        if let Ok(list) = list {
-                            for entry in list {
-                                if let Ok(entry) = entry {
-                                    if entry.filename.ends_with(".esp")
-                                        || entry.filename.ends_with(".esm")
-                                        || entry.filename.ends_with(".esl")
-                                    {
-                                        plugin_file_paths.push(entry.filename);
-                                    }
-                                }
-                            }
-                        }
-
-                        if plugin_file_paths.len() > 0 {
-                            let extract =
-                                Archive::new(temp_file_path.to_string_lossy().to_string())
-                                    .extract_to(temp_dir.path().to_string_lossy().to_string());
-                            extract
-                                .expect("failed to extract")
-                                .process()
-                                .expect("failed to extract");
-                            for file_name in plugin_file_paths.iter() {
-                                dbg!(file_name);
-                                let mut plugin_buf =
-                                    std::fs::read(temp_dir.path().join(file_name))?;
-                                process_plugin(
-                                    &mut plugin_buf,
-                                    &pool,
-                                    &mut plugin_archive,
-                                    name,
-                                    &db_file,
-                                    &mod_obj,
-                                    file_id,
-                                    file_name,
-                                )
-                                .await?;
-                            }
-                        }
-                        temp_dir.close()?;
+                for file_name in list_archive_files(&file)? {
+                    if file_name.ends_with(".esp")
+                        || file_name.ends_with(".esm")
+                        || file_name.ends_with(".esl")
+                    {
+                        plugin_file_paths.push(file_name);
                     }
-                    _ => {
-                        tokio_file.seek(SeekFrom::Start(0)).await?;
-                        let mut file = tokio_file.into_std().await;
-                        let mut plugin_file_paths = Vec::new();
+                }
 
-                        for file_name in list_archive_files(&file)? {
-                            if file_name.ends_with(".esp")
-                                || file_name.ends_with(".esm")
-                                || file_name.ends_with(".esl")
-                            {
-                                plugin_file_paths.push(file_name);
-                            }
-                        }
-
-                        for file_name in plugin_file_paths.iter() {
-                            file.seek(SeekFrom::Start(0))?;
-                            dbg!(file_name);
-                            let mut buf = Vec::default();
-                            uncompress_archive_file(&mut file, &mut buf, file_name)?;
+                for file_name in plugin_file_paths.iter() {
+                    file.seek(SeekFrom::Start(0))?;
+                    dbg!(file_name);
+                    let mut buf = Vec::default();
+                    match uncompress_archive_file(&mut file, &mut buf, file_name) {
+                        Ok(_) => {
                             process_plugin(
                                 &mut buf,
                                 &pool,
@@ -712,8 +670,67 @@ pub async fn main() -> Result<()> {
                             )
                             .await?;
                         }
+                        Err(error) => {
+                            dbg!(error);
+                            if kind.mime_type() == "application/x-rar-compressed"
+                                || kind.mime_type() == "application/vnd.rar"
+                            {
+                                tokio_file.seek(SeekFrom::Start(0)).await?;
+                                let mut file = tokio_file.try_clone().await?.into_std().await;
+                                let temp_dir = tempdir()?;
+                                let temp_file_path = temp_dir.path().join("download.rar");
+                                let mut temp_file = std::fs::File::create(&temp_file_path)?;
+                                std::io::copy(&mut file, &mut temp_file)?;
+
+                                let mut plugin_file_paths = Vec::new();
+                                let list =
+                                    Archive::new(temp_file_path.to_string_lossy().to_string())
+                                        .list();
+                                if let Ok(list) = list {
+                                    for entry in list {
+                                        if let Ok(entry) = entry {
+                                            if entry.filename.ends_with(".esp")
+                                                || entry.filename.ends_with(".esm")
+                                                || entry.filename.ends_with(".esl")
+                                            {
+                                                plugin_file_paths.push(entry.filename);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if plugin_file_paths.len() > 0 {
+                                    let extract =
+                                        Archive::new(temp_file_path.to_string_lossy().to_string())
+                                            .extract_to(
+                                                temp_dir.path().to_string_lossy().to_string(),
+                                            );
+                                    extract
+                                        .expect("failed to extract")
+                                        .process()
+                                        .expect("failed to extract");
+                                    for file_name in plugin_file_paths.iter() {
+                                        dbg!(file_name);
+                                        let mut plugin_buf =
+                                            std::fs::read(temp_dir.path().join(file_name))?;
+                                        process_plugin(
+                                            &mut plugin_buf,
+                                            &pool,
+                                            &mut plugin_archive,
+                                            name,
+                                            &db_file,
+                                            &mod_obj,
+                                            file_id,
+                                            file_name,
+                                        )
+                                        .await?;
+                                    }
+                                }
+                                temp_dir.close()?;
+                            }
+                        }
                     }
-                };
+                }
 
                 plugin_archive.finish()?;
                 if let Some(duration) = duration {
@@ -723,6 +740,8 @@ pub async fn main() -> Result<()> {
         }
 
         page += 1;
+        dbg!(page);
+        dbg!(has_next_page);
     }
 
     Ok(())
