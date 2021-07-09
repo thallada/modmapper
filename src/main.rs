@@ -1,15 +1,6 @@
-use anyhow::{anyhow, Context, Result};
-use chrono::DateTime;
-use chrono::Duration;
-use chrono::NaiveDateTime;
-use chrono::Utc;
+use anyhow::Result;
 use compress_tools::{list_archive_files, uncompress_archive_file};
 use dotenv::dotenv;
-use futures::stream::TryStreamExt;
-use reqwest::Response;
-use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use skyrim_cell_dump::parse_plugin;
 use sqlx::postgres::PgPoolOptions;
 use std::convert::TryInto;
@@ -17,14 +8,16 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
-use tempfile::{tempdir, tempfile};
+use std::time::Duration;
+use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
 
 mod models;
+mod nexus_api;
+mod nexus_scraper;
 
 use models::cell::insert_cell;
 use models::file::{insert_file, File};
@@ -32,51 +25,14 @@ use models::game::insert_game;
 use models::game_mod::{get_mod_by_nexus_mod_id, insert_mod, Mod};
 use models::plugin::insert_plugin;
 use models::plugin_cell::insert_plugin_cell;
-
-static USER_AGENT: &str = "mod-mapper/0.1";
-static GAME_NAME: &str = "skyrimspecialedition";
-const GAME_ID: u32 = 1704;
-
-fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Duration>> {
-    let daily_remaining = res
-        .headers()
-        .get("x-rl-daily-remaining")
-        .expect("No daily remaining in response headers");
-    let hourly_remaining = res
-        .headers()
-        .get("x-rl-hourly-remaining")
-        .expect("No hourly limit in response headers");
-    let hourly_reset = res
-        .headers()
-        .get("x-rl-hourly-reset")
-        .expect("No hourly reset in response headers");
-    dbg!(daily_remaining);
-    dbg!(hourly_remaining);
-
-    if hourly_remaining == "0" {
-        let hourly_reset = hourly_reset.to_str()?.trim();
-        let hourly_reset: DateTime<Utc> =
-            (DateTime::parse_from_str(hourly_reset, "%Y-%m-%d %H:%M:%S %z")?
-                + Duration::seconds(5))
-            .into();
-        dbg!(hourly_reset);
-        let duration = (hourly_reset - Utc::now()).to_std()?;
-        dbg!(duration);
-
-        return Ok(Some(duration));
-    }
-
-    Ok(None)
-}
+use nexus_api::{GAME_ID, GAME_NAME};
 
 async fn process_plugin<W>(
     plugin_buf: &mut [u8],
     pool: &sqlx::Pool<sqlx::Postgres>,
     plugin_archive: &mut ZipWriter<W>,
-    name: &str,
     db_file: &File,
     mod_obj: &Mod,
-    file_id: i64,
     file_name: &str,
 ) -> Result<()>
 where
@@ -86,7 +42,7 @@ where
     let hash = seahash::hash(&plugin_buf);
     let plugin_row = insert_plugin(
         &pool,
-        name,
+        &db_file.name,
         hash as i64,
         db_file.id,
         Some(plugin.header.version as f64),
@@ -116,13 +72,28 @@ where
     plugin_archive.start_file(
         format!(
             "{}/{}/{}/{}",
-            GAME_NAME, mod_obj.nexus_mod_id, file_id, file_name
+            GAME_NAME, mod_obj.nexus_mod_id, db_file.nexus_file_id, file_name
         ),
         FileOptions::default(),
     )?;
 
     let mut reader = std::io::Cursor::new(&plugin_buf);
     std::io::copy(&mut reader, plugin_archive)?;
+    Ok(())
+}
+
+fn initialize_plugins_archive(mod_id: i32, file_id: i32) -> Result<()> {
+    let mut plugins_archive = ZipWriter::new(
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open("plugins.zip")?,
+    );
+    plugins_archive.add_directory(
+        format!("{}/{}/{}", GAME_NAME, mod_id, file_id),
+        FileOptions::default(),
+    )?;
+    plugins_archive.finish()?;
     Ok(())
 }
 
@@ -140,263 +111,77 @@ pub async fn main() -> Result<()> {
     let mut has_next_page = true;
 
     while has_next_page {
-        let res = client
-            .get(format!(
-                "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,include_adult:true,page_size:80,show_game_filter:false,open:false,page:{},sort_by:OLD_u_downloads",
-                GAME_ID,
-                page
-            ))
-            .send()
-            .await?
-            .error_for_status()?;
-        let html = res.text().await?;
-        let document = Html::parse_document(&html);
-        let mod_select = Selector::parse("li.mod-tile").expect("failed to parse CSS selector");
-        let left_select =
-            Selector::parse("div.mod-tile-left").expect("failed to parse CSS selector");
-        let right_select =
-            Selector::parse("div.mod-tile-right").expect("failed to parse CSS selector");
-        let name_select = Selector::parse("p.tile-name a").expect("failed to parse CSS selector");
-        let category_select =
-            Selector::parse("div.category a").expect("failed to parse CSS selector");
-        let author_select = Selector::parse("div.author a").expect("failed to parse CSS selector");
-        let desc_select = Selector::parse("p.desc").expect("failed to parse CSS selector");
-        let next_page_select =
-            Selector::parse("div.pagination li.next").expect("failed to parse CSS selector");
+        let mod_list_resp = nexus_scraper::get_mod_list_page(&client, page).await?;
+        let scraped = mod_list_resp.scrape_mods()?;
 
-        let next_page_elem = document.select(&next_page_select).next();
-
-        has_next_page = next_page_elem.is_some();
-
-        let mut mods = vec![];
-        for element in document.select(&mod_select) {
-            let left = element
-                .select(&left_select)
-                .next()
-                .expect("Missing left div for mod");
-            let right = element
-                .select(&right_select)
-                .next()
-                .expect("Missing right div for mod");
-            let nexus_mod_id = left
-                .value()
-                .attr("data-mod-id")
-                .expect("Missing mod id attribute")
-                .parse::<i32>()
-                .ok()
-                .expect("Failed to parse mod id");
-            let name_elem = right
-                .select(&name_select)
-                .next()
-                .expect("Missing name link for mod");
-            let name = name_elem.text().next().expect("Missing name text for mod");
-            let category_elem = right
-                .select(&category_select)
-                .next()
-                .expect("Missing category link for mod");
-            let category = category_elem
-                .text()
-                .next()
-                .expect("Missing category text for mod");
-            let author_elem = right
-                .select(&author_select)
-                .next()
-                .expect("Missing author link for mod");
-            let author = author_elem
-                .text()
-                .next()
-                .expect("Missing author text for mod");
-            let desc_elem = right
-                .select(&desc_select)
-                .next()
-                .expect("Missing desc elem for mod");
-            let desc = desc_elem.text().next();
-
-            if let None = get_mod_by_nexus_mod_id(&pool, nexus_mod_id).await? {
+        has_next_page = scraped.has_next_page;
+        let mut mods = Vec::new();
+        for scraped_mod in scraped.mods {
+            if let None = get_mod_by_nexus_mod_id(&pool, scraped_mod.nexus_mod_id).await? {
                 mods.push(
-                    insert_mod(&pool, name, nexus_mod_id, author, category, desc, game.id).await?,
+                    insert_mod(
+                        &pool,
+                        scraped_mod.name,
+                        scraped_mod.nexus_mod_id,
+                        scraped_mod.author,
+                        scraped_mod.category,
+                        scraped_mod.desc,
+                        game.id,
+                    )
+                    .await?,
                 );
             }
         }
         dbg!(mods.len());
 
-        for mod_obj in mods {
-            dbg!(&mod_obj.name);
-            let res = client
-                .get(format!(
-                    "https://api.nexusmods.com/v1/games/{}/mods/{}/files.json",
-                    GAME_NAME, mod_obj.nexus_mod_id
-                ))
-                .header("accept", "application/json")
-                .header("apikey", env::var("NEXUS_API_KEY")?)
-                .header("user-agent", USER_AGENT)
-                .send()
-                .await?
-                .error_for_status()?;
-
-            if let Some(duration) = rate_limit_wait_duration(&res)? {
+        for db_mod in mods {
+            dbg!(&db_mod.name);
+            let files_resp = nexus_api::files::get(&client, db_mod.nexus_mod_id).await?;
+            // TODO: download other files than just MAIN files
+            // let files = files.into_iter().filter(|file| {
+            //     if let Some(category_name) = file.get("category_name") {
+            //         category_name.as_str() == Some("MAIN")
+            //     } else {
+            //         false
+            //     }
+            // });
+            if let Some(duration) = files_resp.wait {
                 sleep(duration).await;
             }
 
-            let files = res.json::<Value>().await?;
-            let files = files
-                .get("files")
-                .ok_or_else(|| anyhow!("Missing files key in API response"))?
-                .as_array()
-                .ok_or_else(|| anyhow!("files value in API response is not an array"))?;
-            // TODO: download other files than just MAIN files
-            let files = files.into_iter().filter(|file| {
-                if let Some(category_name) = file.get("category_name") {
-                    category_name.as_str() == Some("MAIN")
-                } else {
-                    false
-                }
-            });
-
-            for file in files {
-                let file_id = file
-                    .get("file_id")
-                    .ok_or_else(|| anyhow!("Missing file_id key in file in API response"))?
-                    .as_i64()
-                    .ok_or_else(|| anyhow!("file_id value in API response file is not a number"))?;
-                dbg!(file_id);
-                let name = file
-                    .get("name")
-                    .ok_or_else(|| anyhow!("Missing name key in file in API response"))?
-                    .as_str()
-                    .ok_or_else(|| anyhow!("name value in API response file is not a string"))?;
-                let file_name = file
-                    .get("file_name")
-                    .ok_or_else(|| anyhow!("Missing file_name key in file in API response"))?
-                    .as_str()
-                    .ok_or_else(|| {
-                        anyhow!("file_name value in API response file is not a string")
-                    })?;
-                let category = file
-                    .get("category_name")
-                    .ok_or_else(|| anyhow!("Missing category key in file in API response"))?
-                    .as_str();
-                let version = file
-                    .get("version")
-                    .ok_or_else(|| anyhow!("Missing version key in file in API response"))?
-                    .as_str();
-                let mod_version = file
-                    .get("mod_version")
-                    .ok_or_else(|| anyhow!("Missing mod_version key in file in API response"))?
-                    .as_str();
-                let uploaded_timestamp = file
-                    .get("uploaded_timestamp")
-                    .ok_or_else(|| {
-                        anyhow!("Missing uploaded_timestamp key in file in API response")
-                    })?
-                    .as_i64()
-                    .ok_or_else(|| {
-                        anyhow!("uploaded_timestamp value in API response file is not a number")
-                    })?;
-                let uploaded_at = NaiveDateTime::from_timestamp(uploaded_timestamp, 0);
+            for api_file in files_resp.files()? {
                 let db_file = insert_file(
                     &pool,
-                    name,
-                    file_name,
-                    file_id as i32,
-                    mod_obj.id,
-                    category,
-                    version,
-                    mod_version,
-                    uploaded_at,
+                    api_file.name,
+                    api_file.file_name,
+                    api_file.file_id as i32,
+                    db_mod.id,
+                    api_file.category,
+                    api_file.version,
+                    api_file.mod_version,
+                    api_file.uploaded_at,
                 )
                 .await?;
-                let res = client
-                    .get(format!(
-                        "https://api.nexusmods.com/v1/games/{}/mods/{}/files/{}/download_link.json",
-                        GAME_NAME, mod_obj.nexus_mod_id, file_id
-                    ))
-                    .header("accept", "application/json")
-                    .header("apikey", env::var("NEXUS_API_KEY")?)
-                    .header("user-agent", USER_AGENT)
-                    .send()
-                    .await?
-                    .error_for_status()?;
 
-                let duration = rate_limit_wait_duration(&res)?;
+                let download_link_resp =
+                    nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)
+                        .await?;
+                let mut tokio_file = download_link_resp.download_file(&client).await?;
 
-                let links = res.json::<Value>().await?;
-                let link = links
-                    .get(0)
-                    .ok_or_else(|| anyhow!("Links array in API response is missing first element"))?
-                    .get("URI")
-                    .ok_or_else(|| anyhow!("Missing URI key in link in API response"))?
-                    .as_str()
-                    .ok_or_else(|| anyhow!("URI value in API response link is not a string"))?;
-
-                let mut tokio_file = tokio::fs::File::from_std(tempfile()?);
-                let res = client
-                    .get(link)
-                    .header("apikey", env::var("NEXUS_API_KEY")?)
-                    .header("user-agent", USER_AGENT)
-                    .send()
-                    .await?
-                    .error_for_status()?;
-
-                // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
-                let mut byte_stream = res
-                    .bytes_stream()
-                    .map_err(|e| futures::io::Error::new(futures::io::ErrorKind::Other, e))
-                    .into_async_read()
-                    .compat();
-
-                tokio::io::copy(&mut byte_stream, &mut tokio_file).await?;
-
-                let mut plugin_archive = ZipWriter::new(
-                    OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .open("plugins.zip")?,
-                );
-                plugin_archive.add_directory(
-                    format!("{}/{}/{}", GAME_NAME, mod_obj.nexus_mod_id, file_id),
-                    FileOptions::default(),
-                )?;
-                plugin_archive.finish()?;
-
-                let mut plugin_archive = ZipWriter::new_append(
+                initialize_plugins_archive(db_mod.nexus_mod_id, db_file.nexus_file_id)?;
+                let mut plugins_archive = ZipWriter::new_append(
                     OpenOptions::new()
                         .read(true)
                         .write(true)
                         .open("plugins.zip")?,
                 )?;
+
                 let mut initial_bytes = [0; 8];
                 tokio_file.seek(SeekFrom::Start(0)).await?;
                 tokio_file.read_exact(&mut initial_bytes).await?;
                 let kind = infer::get(&initial_bytes).expect("unknown file type of file download");
                 dbg!(kind.mime_type());
-                // "application/zip" => {
-                //     let mut archive = ZipArchive::new(reader)?;
-                //     let mut plugin_file_paths = Vec::new();
-                //     for file_name in archive.file_names() {
-                //         dbg!(file_name);
-                //         if file_name.ends_with(".esp")
-                //             || file_name.ends_with(".esm")
-                //             || file_name.ends_with(".esl")
-                //         {
-                //             plugin_file_paths.push(file_name.to_string());
-                //         }
-                //     }
-                //     dbg!(&plugin_file_paths);
-                //     for file_name in plugin_file_paths.iter() {
-                //         let mut file = archive.by_name(file_name)?;
-                //         let plugin = parse_plugin(file)?;
-                //         dbg!(plugin);
-                //         plugin_archive.start_file(
-                //             format!("{}/{}/{}/{}", GAME_NAME, mod_id, file_id, file_name),
-                //             FileOptions::default(),
-                //         )?;
-                //         std::io::copy(&mut file, &mut plugin_archive)?;
-                //     }
-                // }
 
-                // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
-                // certain .rar files: https://github.com/libarchive/libarchive/issues/373
                 tokio_file.seek(SeekFrom::Start(0)).await?;
                 let mut file = tokio_file.try_clone().await?.into_std().await;
                 let mut plugin_file_paths = Vec::new();
@@ -419,11 +204,9 @@ pub async fn main() -> Result<()> {
                             process_plugin(
                                 &mut buf,
                                 &pool,
-                                &mut plugin_archive,
-                                name,
+                                &mut plugins_archive,
                                 &db_file,
-                                &mod_obj,
-                                file_id,
+                                &db_mod,
                                 file_name,
                             )
                             .await?;
@@ -433,6 +216,8 @@ pub async fn main() -> Result<()> {
                             if kind.mime_type() == "application/x-rar-compressed"
                                 || kind.mime_type() == "application/vnd.rar"
                             {
+                                // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
+                                // certain .rar files: https://github.com/libarchive/libarchive/issues/373
                                 tokio_file.seek(SeekFrom::Start(0)).await?;
                                 let mut file = tokio_file.try_clone().await?.into_std().await;
                                 let temp_dir = tempdir()?;
@@ -474,11 +259,9 @@ pub async fn main() -> Result<()> {
                                         process_plugin(
                                             &mut plugin_buf,
                                             &pool,
-                                            &mut plugin_archive,
-                                            name,
+                                            &mut plugins_archive,
                                             &db_file,
-                                            &mod_obj,
-                                            file_id,
+                                            &db_mod,
                                             file_name,
                                         )
                                         .await?;
@@ -490,8 +273,8 @@ pub async fn main() -> Result<()> {
                     }
                 }
 
-                plugin_archive.finish()?;
-                if let Some(duration) = duration {
+                plugins_archive.finish()?;
+                if let Some(duration) = download_link_resp.wait {
                     sleep(duration).await;
                 }
             }
@@ -500,6 +283,7 @@ pub async fn main() -> Result<()> {
         page += 1;
         dbg!(page);
         dbg!(has_next_page);
+        sleep(Duration::new(1, 0)).await;
     }
 
     Ok(())
