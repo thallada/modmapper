@@ -12,6 +12,7 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
+use tracing::{debug, error, info, instrument, warn};
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
 
@@ -27,6 +28,7 @@ use models::plugin::insert_plugin;
 use models::plugin_cell::insert_plugin_cell;
 use nexus_api::{GAME_ID, GAME_NAME};
 
+#[instrument(level = "debug", skip(plugin_buf, pool, plugin_archive, db_file, mod_obj), fields(name = ?mod_obj.name, id = mod_obj.nexus_mod_id))]
 async fn process_plugin<W>(
     plugin_buf: &mut [u8],
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -39,6 +41,7 @@ where
     W: std::io::Write + std::io::Seek,
 {
     let plugin = parse_plugin(&plugin_buf)?;
+    info!(file_name, num_cells = plugin.cells.len(), "parsed plugin");
     let hash = seahash::hash(&plugin_buf);
     let plugin_row = insert_plugin(
         &pool,
@@ -100,6 +103,9 @@ fn initialize_plugins_archive(mod_id: i32, file_id: i32) -> Result<()> {
 #[tokio::main]
 pub async fn main() -> Result<()> {
     dotenv().ok();
+
+    tracing_subscriber::fmt::init();
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&env::var("DATABASE_URL")?)
@@ -132,10 +138,13 @@ pub async fn main() -> Result<()> {
                 );
             }
         }
-        dbg!(mods.len());
 
         for db_mod in mods {
-            dbg!(&db_mod.name);
+            info!(
+                mod_name = ?&db_mod.name,
+                mod_id = ?&db_mod.nexus_mod_id,
+                "fetching files for mod"
+            );
             let files_resp = nexus_api::files::get(&client, db_mod.nexus_mod_id).await?;
             // TODO: download other files than just MAIN files
             // let files = files.into_iter().filter(|file| {
@@ -146,6 +155,7 @@ pub async fn main() -> Result<()> {
             //     }
             // });
             if let Some(duration) = files_resp.wait {
+                debug!(?duration, "sleeping");
                 sleep(duration).await;
             }
 
@@ -162,6 +172,8 @@ pub async fn main() -> Result<()> {
                     api_file.uploaded_at,
                 )
                 .await?;
+
+                // TODO: check the file metadata to see if there are any plugin files in the archive before bothering to download the file (checking metadata does not count against rate-limit)
 
                 let download_link_resp =
                     nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)
@@ -180,7 +192,10 @@ pub async fn main() -> Result<()> {
                 tokio_file.seek(SeekFrom::Start(0)).await?;
                 tokio_file.read_exact(&mut initial_bytes).await?;
                 let kind = infer::get(&initial_bytes).expect("unknown file type of file download");
-                dbg!(kind.mime_type());
+                info!(
+                    mime_type = kind.mime_type(),
+                    "inferred mime_type of downloaded archive"
+                );
 
                 tokio_file.seek(SeekFrom::Start(0)).await?;
                 let mut file = tokio_file.try_clone().await?.into_std().await;
@@ -194,10 +209,17 @@ pub async fn main() -> Result<()> {
                         plugin_file_paths.push(file_name);
                     }
                 }
+                info!(
+                    num_plugin_files = plugin_file_paths.len(),
+                    "listed plugins in downloaded archive"
+                );
 
                 for file_name in plugin_file_paths.iter() {
                     file.seek(SeekFrom::Start(0))?;
-                    dbg!(file_name);
+                    info!(
+                        ?file_name,
+                        "attempting to uncompress file from downloaded archive"
+                    );
                     let mut buf = Vec::default();
                     match uncompress_archive_file(&mut file, &mut buf, file_name) {
                         Ok(_) => {
@@ -212,10 +234,14 @@ pub async fn main() -> Result<()> {
                             .await?;
                         }
                         Err(error) => {
-                            dbg!(error);
+                            warn!(
+                                ?error,
+                                "error occurred while attempting to uncompress archive file"
+                            );
                             if kind.mime_type() == "application/x-rar-compressed"
                                 || kind.mime_type() == "application/vnd.rar"
                             {
+                                info!("downloaded archive is RAR archive, attempt to uncompress entire archive instead");
                                 // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
                                 // certain .rar files: https://github.com/libarchive/libarchive/issues/373
                                 tokio_file.seek(SeekFrom::Start(0)).await?;
@@ -253,7 +279,10 @@ pub async fn main() -> Result<()> {
                                         .process()
                                         .expect("failed to extract");
                                     for file_name in plugin_file_paths.iter() {
-                                        dbg!(file_name);
+                                        info!(
+                                            ?file_name,
+                                            "processing uncompressed file from downloaded archive"
+                                        );
                                         let mut plugin_buf =
                                             std::fs::read(temp_dir.path().join(file_name))?;
                                         process_plugin(
@@ -269,20 +298,21 @@ pub async fn main() -> Result<()> {
                                 }
                                 temp_dir.close()?;
                             }
+                            error!(mime_type = ?kind.mime_type(), "downloaded archive is not RAR archive, skipping processing of this file");
                         }
                     }
                 }
 
                 plugins_archive.finish()?;
                 if let Some(duration) = download_link_resp.wait {
+                    debug!(?duration, "sleeping");
                     sleep(duration).await;
                 }
             }
         }
 
         page += 1;
-        dbg!(page);
-        dbg!(has_next_page);
+        debug!(?page, ?has_next_page, "sleeping 1 second");
         sleep(Duration::new(1, 0)).await;
     }
 

@@ -6,6 +6,7 @@ use std::{env, time::Duration};
 use tempfile::tempfile;
 use tokio::fs::File;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
+use tracing::{info, instrument};
 
 use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
 
@@ -14,6 +15,7 @@ pub struct DownloadLinkResponse {
     json: Value,
 }
 
+#[instrument(skip(client))]
 pub async fn get(client: &Client, mod_id: i32, file_id: i64) -> Result<DownloadLinkResponse> {
     let res = client
         .get(format!(
@@ -27,6 +29,7 @@ pub async fn get(client: &Client, mod_id: i32, file_id: i64) -> Result<DownloadL
         .await?
         .error_for_status()?;
 
+    info!(status = %res.status(), "fetched file download link from API");
     let wait = rate_limit_wait_duration(&res)?;
     let json = res.json::<Value>().await?;
 
@@ -34,6 +37,7 @@ pub async fn get(client: &Client, mod_id: i32, file_id: i64) -> Result<DownloadL
 }
 
 impl DownloadLinkResponse {
+    #[instrument(skip(self))]
     pub fn link<'a>(&'a self) -> Result<&'a str> {
         let link = self
             .json
@@ -43,9 +47,11 @@ impl DownloadLinkResponse {
             .ok_or_else(|| anyhow!("Missing URI key in link in API response"))?
             .as_str()
             .ok_or_else(|| anyhow!("URI value in API response link is not a string"))?;
+        info!(link = %link, "parsed download link from API response");
         Ok(link)
     }
 
+    #[instrument(skip(self, client))]
     pub async fn download_file(&self, client: &Client) -> Result<File> {
         let mut tokio_file = File::from_std(tempfile()?);
         let res = client
@@ -55,6 +61,7 @@ impl DownloadLinkResponse {
             .send()
             .await?
             .error_for_status()?;
+        info!(status = %res.status(), "downloaded file from nexus");
 
         // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
         let mut byte_stream = res

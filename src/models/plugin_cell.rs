@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-
+use tracing::instrument;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginCell {
     pub id: i32,
@@ -12,6 +12,7 @@ pub struct PluginCell {
     pub created_at: NaiveDateTime,
 }
 
+#[instrument(level = "debug", skip(pool))]
 pub async fn insert_plugin_cell(
     pool: &sqlx::Pool<sqlx::Postgres>,
     plugin_id: i32,

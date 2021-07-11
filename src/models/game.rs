@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Game {
@@ -11,6 +12,7 @@ pub struct Game {
     pub created_at: NaiveDateTime,
 }
 
+#[instrument(level = "debug", skip(pool))]
 pub async fn insert_game(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,

@@ -3,6 +3,7 @@ use chrono::NaiveDateTime;
 use reqwest::Client;
 use serde_json::Value;
 use std::{env, time::Duration};
+use tracing::{info, instrument};
 
 use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
 
@@ -21,6 +22,7 @@ pub struct ApiFile<'a> {
     pub uploaded_at: NaiveDateTime,
 }
 
+#[instrument(skip(client))]
 pub async fn get(client: &Client, nexus_mod_id: i32) -> Result<FilesResponse> {
     let res = client
         .get(format!(
@@ -34,6 +36,7 @@ pub async fn get(client: &Client, nexus_mod_id: i32) -> Result<FilesResponse> {
         .await?
         .error_for_status()?;
 
+    info!(status = %res.status(), "fetched files for mod from API");
     let wait = rate_limit_wait_duration(&res)?;
     let json = res.json::<Value>().await?;
 
@@ -41,6 +44,7 @@ pub async fn get(client: &Client, nexus_mod_id: i32) -> Result<FilesResponse> {
 }
 
 impl FilesResponse {
+    #[instrument(skip(self))]
     pub fn files<'a>(&'a self) -> Result<Vec<ApiFile<'a>>> {
         let files = self
             .json
@@ -48,7 +52,7 @@ impl FilesResponse {
             .ok_or_else(|| anyhow!("Missing files key in API response"))?
             .as_array()
             .ok_or_else(|| anyhow!("files value in API response is not an array"))?;
-        files
+        let files: Vec<ApiFile> = files
             .into_iter()
             .map(|file| {
                 let file_id = file
@@ -56,7 +60,6 @@ impl FilesResponse {
                     .ok_or_else(|| anyhow!("Missing file_id key in file in API response"))?
                     .as_i64()
                     .ok_or_else(|| anyhow!("file_id value in API response file is not a number"))?;
-                dbg!(file_id);
                 let name = file
                     .get("name")
                     .ok_or_else(|| anyhow!("Missing name key in file in API response"))?
@@ -102,6 +105,8 @@ impl FilesResponse {
                     uploaded_at,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<ApiFile>>>()?;
+        info!(num_files = files.len(), "parsed files out of API response");
+        Ok(files)
     }
 }

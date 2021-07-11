@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Mod {
@@ -15,6 +16,7 @@ pub struct Mod {
     pub created_at: NaiveDateTime,
 }
 
+#[instrument(level = "debug", skip(pool))]
 pub async fn get_mod_by_nexus_mod_id(
     pool: &sqlx::Pool<sqlx::Postgres>,
     nexus_mod_id: i32,
@@ -29,6 +31,7 @@ pub async fn get_mod_by_nexus_mod_id(
     .context("Failed to get mod")
 }
 
+#[instrument(level = "debug", skip(pool))]
 pub async fn insert_mod(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,

@@ -3,6 +3,7 @@ use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
 use reqwest::Response;
+use tracing::info;
 
 pub mod download_link;
 pub mod files;
@@ -24,8 +25,7 @@ pub fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Dura
         .headers()
         .get("x-rl-hourly-reset")
         .expect("No hourly reset in response headers");
-    dbg!(daily_remaining);
-    dbg!(hourly_remaining);
+    info!(daily_remaining = ?daily_remaining, hourly_remaining = ?hourly_remaining, "rate limit check");
 
     if hourly_remaining == "0" {
         let hourly_reset = hourly_reset.to_str()?.trim();
@@ -33,9 +33,11 @@ pub fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Dura
             (DateTime::parse_from_str(hourly_reset, "%Y-%m-%d %H:%M:%S %z")?
                 + Duration::seconds(5))
             .into();
-        dbg!(hourly_reset);
         let duration = (hourly_reset - Utc::now()).to_std()?;
-        dbg!(duration);
+        info!(
+            hourly_reset = ?hourly_reset,
+            duration = ?duration, "need to wait until rate-limit hourly reset"
+        );
 
         return Ok(Some(duration));
     }

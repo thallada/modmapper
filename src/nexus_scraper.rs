@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::Client;
 use scraper::{Html, Selector};
+use tracing::{info, instrument};
 
 use crate::nexus_api::GAME_ID;
 
@@ -20,6 +21,7 @@ pub struct ModListScrape<'a> {
     pub has_next_page: bool,
 }
 
+#[instrument(skip(client))]
 pub async fn get_mod_list_page(client: &Client, page: i32) -> Result<ModListResponse> {
     let res = client
         .get(format!(
@@ -30,6 +32,7 @@ pub async fn get_mod_list_page(client: &Client, page: i32) -> Result<ModListResp
         .send()
         .await?
         .error_for_status()?;
+    info!(status = %res.status(), "fetched mod list page");
     let text = res.text().await?;
     let html = Html::parse_document(&text);
 
@@ -37,6 +40,7 @@ pub async fn get_mod_list_page(client: &Client, page: i32) -> Result<ModListResp
 }
 
 impl ModListResponse {
+    #[instrument(skip(self))]
     pub fn scrape_mods<'a>(&'a self) -> Result<ModListScrape> {
         let mod_select = Selector::parse("li.mod-tile").expect("failed to parse CSS selector");
         let left_select =
@@ -110,7 +114,10 @@ impl ModListResponse {
                 }
             })
             .collect();
-        dbg!(mods.len());
+        info!(
+            len = mods.len(),
+            has_next_page, "scraped mods from mod list page"
+        );
         Ok(ModListScrape {
             mods,
             has_next_page,
