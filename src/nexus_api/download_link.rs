@@ -61,7 +61,7 @@ impl DownloadLinkResponse {
             .send()
             .await?
             .error_for_status()?;
-        info!(status = %res.status(), "downloaded file from nexus");
+        info!(status = %res.status(), "downloading file from nexus");
 
         // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
         let mut byte_stream = res

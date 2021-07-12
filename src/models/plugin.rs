@@ -10,6 +10,7 @@ pub struct Plugin {
     pub hash: i64,
     pub file_id: i32,
     pub version: Option<f64>,
+    pub size: i64,
     pub author: Option<String>,
     pub description: Option<String>,
     pub masters: Option<Vec<String>>,
@@ -18,12 +19,13 @@ pub struct Plugin {
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert_plugin(
+pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,
     hash: i64,
     file_id: i32,
     version: Option<f64>,
+    size: i64,
     author: Option<&str>,
     description: Option<&str>,
     masters: Option<&[String]>,
@@ -31,8 +33,8 @@ pub async fn insert_plugin(
     sqlx::query_as!(
         Plugin,
         "INSERT INTO plugins
-            (name, hash, file_id, version, author, description, masters, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+            (name, hash, file_id, version, size, author, description, masters, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
             ON CONFLICT (file_id, name) DO UPDATE
             SET (hash, version, author, description, masters, updated_at) =
             (EXCLUDED.hash, EXCLUDED.version, EXCLUDED.author, EXCLUDED.description, EXCLUDED.masters, now())
@@ -41,6 +43,7 @@ pub async fn insert_plugin(
         hash,
         file_id,
         version,
+        size,
         author,
         description,
         masters

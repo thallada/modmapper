@@ -13,13 +13,15 @@ pub struct File {
     pub category: Option<String>,
     pub version: Option<String>,
     pub mod_version: Option<String>,
+    pub size: i64,
     pub uploaded_at: NaiveDateTime,
+    pub has_download_link: bool,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert_file(
+pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,
     file_name: &str,
@@ -28,13 +30,14 @@ pub async fn insert_file(
     category: Option<&str>,
     version: Option<&str>,
     mod_version: Option<&str>,
+    size: i64,
     uploaded_at: NaiveDateTime,
 ) -> Result<File> {
     sqlx::query_as!(
         File,
         "INSERT INTO files
-            (name, file_name, nexus_file_id, mod_id, category, version, mod_version, uploaded_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
+            (name, file_name, nexus_file_id, mod_id, category, version, mod_version, size, uploaded_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
             ON CONFLICT (mod_id, nexus_file_id) DO UPDATE
             SET (name, file_name, category, version, mod_version, uploaded_at, updated_at) =
             (EXCLUDED.name, EXCLUDED.file_name, EXCLUDED.category, EXCLUDED.version, EXCLUDED.mod_version, EXCLUDED.uploaded_at, now())
@@ -46,9 +49,30 @@ pub async fn insert_file(
         category,
         version,
         mod_version,
+        size,
         uploaded_at
     )
     .fetch_one(pool)
     .await
     .context("Failed to insert file")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn update_has_download_link(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    id: i32,
+    has_download_link: bool,
+) -> Result<File> {
+    sqlx::query_as!(
+        File,
+        "UPDATE files
+            SET has_download_link = $2
+            WHERE id = $1
+            RETURNING *",
+        id,
+        has_download_link,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to update file")
 }

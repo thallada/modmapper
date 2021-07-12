@@ -19,6 +19,7 @@ pub struct ApiFile<'a> {
     pub category: Option<&'a str>,
     pub version: Option<&'a str>,
     pub mod_version: Option<&'a str>,
+    pub size: i64,
     pub uploaded_at: NaiveDateTime,
 }
 
@@ -84,6 +85,13 @@ impl FilesResponse {
                     .get("mod_version")
                     .ok_or_else(|| anyhow!("Missing mod_version key in file in API response"))?
                     .as_str();
+                let size = file
+                    .get("size_in_bytes")
+                    .ok_or_else(|| anyhow!("Missing size_in_bytes key in file in API response"))?
+                    .as_i64()
+                    .ok_or_else(|| {
+                        anyhow!("size_in_bytes value in API response file is not a number")
+                    })?;
                 let uploaded_timestamp = file
                     .get("uploaded_timestamp")
                     .ok_or_else(|| {
@@ -102,6 +110,7 @@ impl FilesResponse {
                     category,
                     version,
                     mod_version,
+                    size,
                     uploaded_at,
                 })
             })

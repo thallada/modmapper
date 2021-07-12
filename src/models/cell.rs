@@ -15,7 +15,7 @@ pub struct Cell {
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert_cell(
+pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     form_id: i32,
     x: Option<i32>,

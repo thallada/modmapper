@@ -17,7 +17,7 @@ pub struct Mod {
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn get_mod_by_nexus_mod_id(
+pub async fn get_by_nexus_mod_id(
     pool: &sqlx::Pool<sqlx::Postgres>,
     nexus_mod_id: i32,
 ) -> Result<Option<Mod>> {
@@ -32,7 +32,7 @@ pub async fn get_mod_by_nexus_mod_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert_mod(
+pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,
     nexus_mod_id: i32,

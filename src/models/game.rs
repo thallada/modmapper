@@ -13,7 +13,7 @@ pub struct Game {
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert_game(
+pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,
     nexus_game_id: i32,

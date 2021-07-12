@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS "files" (
     "category" VARCHAR(255),
     "version" VARCHAR(255),
     "mod_version" VARCHAR(255),
+    "size" BIGINT NOT NULL,
     "uploaded_at" timestamp(3) NOT NULL,
+    "has_download_link" BOOLEAN NOT NULL DEFAULT true,
     "created_at" timestamp(3) NOT NULL,
     "updated_at" timestamp(3) NOT NULL
 );
@@ -43,6 +45,7 @@ CREATE TABLE IF NOT EXISTS "plugins" (
     "hash" BIGINT NOT NULL,
     "file_id" INTEGER REFERENCES "files"(id) NOT NULL,
     "version" FLOAT,
+    "size" BIGINT NOT NULL,
     "author" TEXT,
     "description" TEXT,
     "masters" VARCHAR(255)[],

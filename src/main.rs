@@ -1,6 +1,7 @@
 use anyhow::Result;
 use compress_tools::{list_archive_files, uncompress_archive_file};
 use dotenv::dotenv;
+use reqwest::StatusCode;
 use skyrim_cell_dump::parse_plugin;
 use sqlx::postgres::PgPoolOptions;
 use std::convert::TryInto;
@@ -12,7 +13,7 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, info_span, warn};
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
 
@@ -20,15 +21,14 @@ mod models;
 mod nexus_api;
 mod nexus_scraper;
 
-use models::cell::insert_cell;
-use models::file::{insert_file, File};
-use models::game::insert_game;
-use models::game_mod::{get_mod_by_nexus_mod_id, insert_mod, Mod};
-use models::plugin::insert_plugin;
-use models::plugin_cell::insert_plugin_cell;
+use models::cell;
+use models::game;
+use models::plugin;
+use models::plugin_cell;
+use models::{file, file::File};
+use models::{game_mod, game_mod::Mod};
 use nexus_api::{GAME_ID, GAME_NAME};
 
-#[instrument(level = "debug", skip(plugin_buf, pool, plugin_archive, db_file, mod_obj), fields(name = ?mod_obj.name, id = mod_obj.nexus_mod_id))]
 async fn process_plugin<W>(
     plugin_buf: &mut [u8],
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -40,15 +40,17 @@ async fn process_plugin<W>(
 where
     W: std::io::Write + std::io::Seek,
 {
+    info!(bytes = plugin_buf.len(), "parsing plugin");
     let plugin = parse_plugin(&plugin_buf)?;
-    info!(file_name, num_cells = plugin.cells.len(), "parsed plugin");
+    info!(num_cells = plugin.cells.len(), "parse finished");
     let hash = seahash::hash(&plugin_buf);
-    let plugin_row = insert_plugin(
+    let plugin_row = plugin::insert(
         &pool,
         &db_file.name,
         hash as i64,
         db_file.id,
         Some(plugin.header.version as f64),
+        plugin_buf.len() as i64,
         plugin.header.author,
         plugin.header.description,
         Some(
@@ -62,7 +64,7 @@ where
     )
     .await?;
     for cell in plugin.cells {
-        let cell_row = insert_cell(
+        let cell_row = cell::insert(
             &pool,
             cell.form_id.try_into().unwrap(),
             cell.x,
@@ -70,7 +72,7 @@ where
             cell.is_persistent,
         )
         .await?;
-        insert_plugin_cell(&pool, plugin_row.id, cell_row.id, cell.editor_id).await?;
+        plugin_cell::insert(&pool, plugin_row.id, cell_row.id, cell.editor_id).await?;
     }
     plugin_archive.start_file(
         format!(
@@ -110,22 +112,24 @@ pub async fn main() -> Result<()> {
         .max_connections(5)
         .connect(&env::var("DATABASE_URL")?)
         .await?;
-    let game = insert_game(&pool, GAME_NAME, GAME_ID as i32).await?;
+    let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
     let client = reqwest::Client::new();
 
     let mut page: i32 = 1;
     let mut has_next_page = true;
 
     while has_next_page {
+        let page_span = info_span!("page", page);
+        let _page_span = page_span.enter();
         let mod_list_resp = nexus_scraper::get_mod_list_page(&client, page).await?;
         let scraped = mod_list_resp.scrape_mods()?;
 
         has_next_page = scraped.has_next_page;
         let mut mods = Vec::new();
         for scraped_mod in scraped.mods {
-            if let None = get_mod_by_nexus_mod_id(&pool, scraped_mod.nexus_mod_id).await? {
+            if let None = game_mod::get_by_nexus_mod_id(&pool, scraped_mod.nexus_mod_id).await? {
                 mods.push(
-                    insert_mod(
+                    game_mod::insert(
                         &pool,
                         scraped_mod.name,
                         scraped_mod.nexus_mod_id,
@@ -140,27 +144,26 @@ pub async fn main() -> Result<()> {
         }
 
         for db_mod in mods {
-            info!(
-                mod_name = ?&db_mod.name,
-                mod_id = ?&db_mod.nexus_mod_id,
-                "fetching files for mod"
-            );
+            let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
+            let _mod_span = mod_span.enter();
             let files_resp = nexus_api::files::get(&client, db_mod.nexus_mod_id).await?;
-            // TODO: download other files than just MAIN files
-            // let files = files.into_iter().filter(|file| {
-            //     if let Some(category_name) = file.get("category_name") {
-            //         category_name.as_str() == Some("MAIN")
-            //     } else {
-            //         false
-            //     }
-            // });
+
             if let Some(duration) = files_resp.wait {
                 debug!(?duration, "sleeping");
                 sleep(duration).await;
             }
 
-            for api_file in files_resp.files()? {
-                let db_file = insert_file(
+            // Filter out replaced/deleted files (indicated by null category)
+            let files = files_resp
+                .files()?
+                .into_iter()
+                .filter(|file| file.category.is_some());
+
+            for api_file in files {
+                let file_span =
+                    info_span!("file", name = &api_file.file_name, id = &api_file.file_id);
+                let _file_span = file_span.enter();
+                let db_file = file::insert(
                     &pool,
                     api_file.name,
                     api_file.file_name,
@@ -169,6 +172,7 @@ pub async fn main() -> Result<()> {
                     api_file.category,
                     api_file.version,
                     api_file.mod_version,
+                    api_file.size,
                     api_file.uploaded_at,
                 )
                 .await?;
@@ -177,8 +181,23 @@ pub async fn main() -> Result<()> {
 
                 let download_link_resp =
                     nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)
-                        .await?;
+                        .await;
+                if let Err(err) = &download_link_resp {
+                    if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+                        if reqwest_err.status() == Some(StatusCode::NOT_FOUND) {
+                            warn!(
+                                status = ?reqwest_err.status(),
+                                file_id = api_file.file_id,
+                                "failed to get download link for file"
+                            );
+                            file::update_has_download_link(&pool, db_file.id, false).await?;
+                            continue;
+                        }
+                    }
+                }
+                let download_link_resp = download_link_resp?;
                 let mut tokio_file = download_link_resp.download_file(&client).await?;
+                info!(bytes = api_file.size, "download finished");
 
                 initialize_plugins_archive(db_mod.nexus_mod_id, db_file.nexus_file_id)?;
                 let mut plugins_archive = ZipWriter::new_append(
@@ -215,11 +234,10 @@ pub async fn main() -> Result<()> {
                 );
 
                 for file_name in plugin_file_paths.iter() {
+                    let plugin_span = info_span!("plugin", name = ?file_name);
+                    let _plugin_span = plugin_span.enter();
                     file.seek(SeekFrom::Start(0))?;
-                    info!(
-                        ?file_name,
-                        "attempting to uncompress file from downloaded archive"
-                    );
+                    info!("attempting to uncompress plugin file from downloaded archive");
                     let mut buf = Vec::default();
                     match uncompress_archive_file(&mut file, &mut buf, file_name) {
                         Ok(_) => {

@@ -13,7 +13,7 @@ pub struct PluginCell {
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert_plugin_cell(
+pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     plugin_id: i32,
     cell_id: i32,
