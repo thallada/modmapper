@@ -7,6 +7,7 @@ use tracing::info;
 
 pub mod download_link;
 pub mod files;
+pub mod metadata;
 
 pub static GAME_NAME: &str = "skyrimspecialedition";
 pub const GAME_ID: u32 = 1704;

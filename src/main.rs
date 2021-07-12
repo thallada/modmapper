@@ -189,7 +189,16 @@ pub async fn main() -> Result<()> {
                 )
                 .await?;
 
-                // TODO: check the file metadata to see if there are any plugin files in the archive before bothering to download the file (checking metadata does not count against rate-limit)
+                if let Some(contains_plugin) =
+                    nexus_api::metadata::contains_plugin(&client, &api_file).await?
+                {
+                    if !contains_plugin {
+                        info!("file metadata does not contain a plugin, skip downloading");
+                        continue;
+                    }
+                } else {
+                    warn!("file has no metadata link");
+                }
 
                 let download_link_resp =
                     nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)

@@ -20,6 +20,7 @@ pub struct ApiFile<'a> {
     pub version: Option<&'a str>,
     pub mod_version: Option<&'a str>,
     pub size: i64,
+    pub content_preview_link: Option<&'a str>,
     pub uploaded_at: NaiveDateTime,
 }
 
@@ -89,6 +90,10 @@ impl FilesResponse {
                     .get("size_in_bytes")
                     .ok_or_else(|| anyhow!("Missing size_in_bytes key in file in API response"))?
                     .as_i64();
+                let content_preview_link = file
+                    .get("content_preview_link")
+                    .ok_or_else(|| anyhow!("Missing content_preview_link key in file in API response"))?
+                    .as_str();
                 let size = if let Some(size) = size {
                     size
                 } else {
@@ -120,6 +125,7 @@ impl FilesResponse {
                     version,
                     mod_version,
                     size,
+                    content_preview_link,
                     uploaded_at,
                 })
             })
