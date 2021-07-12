@@ -40,6 +40,10 @@ async fn process_plugin<W>(
 where
     W: std::io::Write + std::io::Seek,
 {
+    if plugin_buf.len() == 0 {
+        warn!("skipping processing of invalid empty plugin");
+        return Ok(());
+    }
     info!(bytes = plugin_buf.len(), "parsing plugin");
     let plugin = parse_plugin(&plugin_buf)?;
     info!(num_cells = plugin.cells.len(), "parse finished");
