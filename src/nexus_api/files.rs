@@ -8,7 +8,7 @@ use tracing::{info, instrument};
 use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
 
 pub struct FilesResponse {
-    pub wait: Option<Duration>,
+    pub wait: Duration,
     json: Value,
 }
 

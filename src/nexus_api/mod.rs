@@ -12,22 +12,28 @@ pub static GAME_NAME: &str = "skyrimspecialedition";
 pub const GAME_ID: u32 = 1704;
 pub static USER_AGENT: &str = "mod-mapper/0.1";
 
-pub fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Duration>> {
-    let daily_remaining = res
+pub fn rate_limit_wait_duration(res: &Response) -> Result<std::time::Duration> {
+    let daily_remaining: i32 = res
         .headers()
         .get("x-rl-daily-remaining")
-        .expect("No daily remaining in response headers");
-    let hourly_remaining = res
+        .expect("daily remaining in response headers")
+        .to_str()?
+        .parse()
+        .expect("daily remaining in response headers to be a number");
+    let hourly_remaining: i32 = res
         .headers()
         .get("x-rl-hourly-remaining")
-        .expect("No hourly limit in response headers");
+        .expect("hourly remaining in response headers")
+        .to_str()?
+        .parse()
+        .expect("hourly remaining in response headers to be a number");
     let hourly_reset = res
         .headers()
         .get("x-rl-hourly-reset")
-        .expect("No hourly reset in response headers");
-    info!(daily_remaining = ?daily_remaining, hourly_remaining = ?hourly_remaining, "rate limit check");
+        .expect("hourly reset in response headers");
+    info!(daily_remaining, hourly_remaining, "rate limit check");
 
-    if hourly_remaining == "0" {
+    if daily_remaining == 0 && hourly_remaining == 0 {
         let hourly_reset = hourly_reset.to_str()?.trim();
         let hourly_reset: DateTime<Utc> =
             (DateTime::parse_from_str(hourly_reset, "%Y-%m-%d %H:%M:%S %z")?
@@ -39,8 +45,8 @@ pub fn rate_limit_wait_duration(res: &Response) -> Result<Option<std::time::Dura
             duration = ?duration, "need to wait until rate-limit hourly reset"
         );
 
-        return Ok(Some(duration));
+        Ok(duration)
+    } else {
+        Ok(std::time::Duration::from_secs(1))
     }
-
-    Ok(None)
 }

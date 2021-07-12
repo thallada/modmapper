@@ -152,16 +152,24 @@ pub async fn main() -> Result<()> {
             let _mod_span = mod_span.enter();
             let files_resp = nexus_api::files::get(&client, db_mod.nexus_mod_id).await?;
 
-            if let Some(duration) = files_resp.wait {
-                debug!(?duration, "sleeping");
-                sleep(duration).await;
-            }
+            debug!(duration = ?files_resp.wait, "sleeping");
+            sleep(files_resp.wait).await;
 
             // Filter out replaced/deleted files (indicated by null category)
             let files = files_resp
                 .files()?
                 .into_iter()
-                .filter(|file| file.category.is_some());
+                .filter(|file| match file.category {
+                    Some(_) => true,
+                    None => {
+                        info!(
+                            name = file.file_name,
+                            id = file.file_id,
+                            "skipping file with no category"
+                        );
+                        false
+                    }
+                });
 
             for api_file in files {
                 let file_span =
@@ -326,16 +334,14 @@ pub async fn main() -> Result<()> {
                 }
 
                 plugins_archive.finish()?;
-                if let Some(duration) = download_link_resp.wait {
-                    debug!(?duration, "sleeping");
-                    sleep(duration).await;
-                }
+                debug!(duration = ?download_link_resp.wait, "sleeping");
+                sleep(download_link_resp.wait).await;
             }
         }
 
         page += 1;
         debug!(?page, ?has_next_page, "sleeping 1 second");
-        sleep(Duration::new(1, 0)).await;
+        sleep(Duration::from_secs(1)).await;
     }
 
     Ok(())
