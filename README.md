@@ -29,9 +29,17 @@ postgres=# ALTER DATABASE modmapper OWNER TO modmapper;
 
 ```
 DATABASE_URL=postgresql://modmapper:<password>@localhost/modmapper
+RUST_LOG=mod_mapper=debug
 ```
 
 4. Install
    [`sqlx_cli`](https://github.com/launchbadge/sqlx/tree/master/sqlx-cli) with
-   `cargo install --version=0.1.0-beta.1 sqlx-cli --no-default-features --features postgres`
+   `cargo install sqlx-cli --no-default-features --features postgres`
 5. Run `sqlx migrate --source migrations run` which will run all the database migrations.
+6. Get your personal Nexus API token from your profile settings and add it to the `.env` file:
+
+```
+NEXUS_API_KEY=...
+```
+
+7. Either run `cargo run` for development mode, or build the release binary with `cargo build --release`, which will get saved to `target/release/`.
