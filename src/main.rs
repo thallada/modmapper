@@ -13,7 +13,7 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
-use tracing::{debug, error, info, info_span, warn};
+use tracing::{debug, info, info_span, warn};
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
 
@@ -228,31 +228,93 @@ pub async fn main() -> Result<()> {
                     "inferred mime_type of downloaded archive"
                 );
 
-                tokio_file.seek(SeekFrom::Start(0)).await?;
-                let mut file = tokio_file.try_clone().await?.into_std().await;
-                let mut plugin_file_paths = Vec::new();
+                match kind.mime_type() {
+                    "application/vnd.rar" => {
+                        info!("downloaded archive is RAR archive, attempt to uncompress entire archive");
+                        // Use unrar to uncompress the entire .rar file to avoid bugs with compress_tools uncompressing certain .rar files:
+                        // https://github.com/libarchive/libarchive/issues/373, https://github.com/libarchive/libarchive/issues/1426
+                        tokio_file.seek(SeekFrom::Start(0)).await?;
+                        let mut file = tokio_file.try_clone().await?.into_std().await;
+                        let temp_dir = tempdir()?;
+                        let temp_file_path = temp_dir.path().join("download.rar");
+                        let mut temp_file = std::fs::File::create(&temp_file_path)?;
+                        std::io::copy(&mut file, &mut temp_file)?;
 
-                for file_name in list_archive_files(&file)? {
-                    if file_name.ends_with(".esp")
-                        || file_name.ends_with(".esm")
-                        || file_name.ends_with(".esl")
-                    {
-                        plugin_file_paths.push(file_name);
+                        let mut plugin_file_paths = Vec::new();
+                        let list =
+                            Archive::new(temp_file_path.to_string_lossy().to_string()).list();
+                        if let Ok(list) = list {
+                            for entry in list {
+                                if let Ok(entry) = entry {
+                                    if entry.filename.ends_with(".esp")
+                                        || entry.filename.ends_with(".esm")
+                                        || entry.filename.ends_with(".esl")
+                                    {
+                                        plugin_file_paths.push(entry.filename);
+                                    }
+                                }
+                            }
+                        }
+                        info!(
+                            num_plugin_files = plugin_file_paths.len(),
+                            "listed plugins in downloaded archive"
+                        );
+
+                        if plugin_file_paths.len() > 0 {
+                            info!("uncompressing downloaded archive");
+                            let extract =
+                                Archive::new(temp_file_path.to_string_lossy().to_string())
+                                    .extract_to(temp_dir.path().to_string_lossy().to_string());
+                            extract
+                                .expect("failed to extract")
+                                .process()
+                                .expect("failed to extract");
+
+                            for file_name in plugin_file_paths.iter() {
+                                info!(
+                                    ?file_name,
+                                    "processing uncompressed file from downloaded archive"
+                                );
+                                let mut plugin_buf =
+                                    std::fs::read(temp_dir.path().join(file_name))?;
+                                process_plugin(
+                                    &mut plugin_buf,
+                                    &pool,
+                                    &mut plugins_archive,
+                                    &db_file,
+                                    &db_mod,
+                                    file_name,
+                                )
+                                .await?;
+                            }
+                        }
+                        temp_dir.close()?;
                     }
-                }
-                info!(
-                    num_plugin_files = plugin_file_paths.len(),
-                    "listed plugins in downloaded archive"
-                );
+                    _ => {
+                        tokio_file.seek(SeekFrom::Start(0)).await?;
+                        let mut file = tokio_file.try_clone().await?.into_std().await;
+                        let mut plugin_file_paths = Vec::new();
 
-                for file_name in plugin_file_paths.iter() {
-                    let plugin_span = info_span!("plugin", name = ?file_name);
-                    let _plugin_span = plugin_span.enter();
-                    file.seek(SeekFrom::Start(0))?;
-                    info!("attempting to uncompress plugin file from downloaded archive");
-                    let mut buf = Vec::default();
-                    match uncompress_archive_file(&mut file, &mut buf, file_name) {
-                        Ok(_) => {
+                        for file_name in list_archive_files(&file)? {
+                            if file_name.ends_with(".esp")
+                                || file_name.ends_with(".esm")
+                                || file_name.ends_with(".esl")
+                            {
+                                plugin_file_paths.push(file_name);
+                            }
+                        }
+                        info!(
+                            num_plugin_files = plugin_file_paths.len(),
+                            "listed plugins in downloaded archive"
+                        );
+
+                        for file_name in plugin_file_paths.iter() {
+                            let plugin_span = info_span!("plugin", name = ?file_name);
+                            let _plugin_span = plugin_span.enter();
+                            file.seek(SeekFrom::Start(0))?;
+                            let mut buf = Vec::default();
+                            info!("uncompressing plugin file from downloaded archive");
+                            uncompress_archive_file(&mut file, &mut buf, file_name)?;
                             process_plugin(
                                 &mut buf,
                                 &pool,
@@ -262,73 +324,6 @@ pub async fn main() -> Result<()> {
                                 file_name,
                             )
                             .await?;
-                        }
-                        Err(error) => {
-                            warn!(
-                                ?error,
-                                "error occurred while attempting to uncompress archive file"
-                            );
-                            if kind.mime_type() == "application/x-rar-compressed"
-                                || kind.mime_type() == "application/vnd.rar"
-                            {
-                                info!("downloaded archive is RAR archive, attempt to uncompress entire archive instead");
-                                // Use unrar to uncompress the entire .rar file to avoid a bug with compress_tools panicking when uncompressing
-                                // certain .rar files: https://github.com/libarchive/libarchive/issues/373
-                                tokio_file.seek(SeekFrom::Start(0)).await?;
-                                let mut file = tokio_file.try_clone().await?.into_std().await;
-                                let temp_dir = tempdir()?;
-                                let temp_file_path = temp_dir.path().join("download.rar");
-                                let mut temp_file = std::fs::File::create(&temp_file_path)?;
-                                std::io::copy(&mut file, &mut temp_file)?;
-
-                                let mut plugin_file_paths = Vec::new();
-                                let list =
-                                    Archive::new(temp_file_path.to_string_lossy().to_string())
-                                        .list();
-                                if let Ok(list) = list {
-                                    for entry in list {
-                                        if let Ok(entry) = entry {
-                                            if entry.filename.ends_with(".esp")
-                                                || entry.filename.ends_with(".esm")
-                                                || entry.filename.ends_with(".esl")
-                                            {
-                                                plugin_file_paths.push(entry.filename);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if plugin_file_paths.len() > 0 {
-                                    let extract =
-                                        Archive::new(temp_file_path.to_string_lossy().to_string())
-                                            .extract_to(
-                                                temp_dir.path().to_string_lossy().to_string(),
-                                            );
-                                    extract
-                                        .expect("failed to extract")
-                                        .process()
-                                        .expect("failed to extract");
-                                    for file_name in plugin_file_paths.iter() {
-                                        info!(
-                                            ?file_name,
-                                            "processing uncompressed file from downloaded archive"
-                                        );
-                                        let mut plugin_buf =
-                                            std::fs::read(temp_dir.path().join(file_name))?;
-                                        process_plugin(
-                                            &mut plugin_buf,
-                                            &pool,
-                                            &mut plugins_archive,
-                                            &db_file,
-                                            &db_mod,
-                                            file_name,
-                                        )
-                                        .await?;
-                                    }
-                                }
-                                temp_dir.close()?;
-                            }
-                            error!(mime_type = ?kind.mime_type(), "downloaded archive is not RAR archive, skipping processing of this file");
                         }
                     }
                 }
