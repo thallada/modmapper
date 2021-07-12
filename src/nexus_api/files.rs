@@ -88,10 +88,19 @@ impl FilesResponse {
                 let size = file
                     .get("size_in_bytes")
                     .ok_or_else(|| anyhow!("Missing size_in_bytes key in file in API response"))?
-                    .as_i64()
-                    .ok_or_else(|| {
-                        anyhow!("size_in_bytes value in API response file is not a number")
-                    })?;
+                    .as_i64();
+                let size = if let Some(size) = size {
+                    size
+                } else {
+                    file
+                        .get("size_kb")
+                        .ok_or_else(|| anyhow!("Missing size_kb key in file in API response"))?
+                        .as_i64()
+                        .ok_or_else(|| {
+                            anyhow!("size_in_bytes and size_kb values in API response file are not numbers")
+                        })? * 1000
+                };
+
                 let uploaded_timestamp = file
                     .get("uploaded_timestamp")
                     .ok_or_else(|| {
