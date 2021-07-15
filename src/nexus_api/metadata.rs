@@ -57,7 +57,20 @@ pub async fn contains_plugin(client: &Client, api_file: &ApiFile<'_>) -> Result<
         info!(status = %res.status(), "fetched file metadata from API");
         let json = res.json::<Value>().await?;
 
-        Ok(Some(has_plugin(&json)?))
+        match json.get("children") {
+            None => Ok(Some(false)),
+            Some(children) => {
+                let children = children
+                    .as_array()
+                    .ok_or_else(|| anyhow!("children value in metadata is not an array"))?;
+                for child in children {
+                    if has_plugin(child)? {
+                        return Ok(Some(true));
+                    }
+                }
+                Ok(Some(false))
+            }
+        }
     } else {
         Ok(None)
     }
