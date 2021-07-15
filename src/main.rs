@@ -255,9 +255,10 @@ pub async fn main() -> Result<()> {
                         if let Ok(list) = list {
                             for entry in list {
                                 if let Ok(entry) = entry {
-                                    if entry.filename.ends_with(".esp")
-                                        || entry.filename.ends_with(".esm")
-                                        || entry.filename.ends_with(".esl")
+                                    if entry.is_file() && (
+                                        entry.filename.ends_with(".esp")
+                                            || entry.filename.ends_with(".esm")
+                                            || entry.filename.ends_with(".esl"))
                                     {
                                         plugin_file_paths.push(entry.filename);
                                     }
