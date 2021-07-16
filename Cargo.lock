@@ -199,8 +199,8 @@ dependencies = [
 
 [[package]]
 name = "compress-tools"
-version = "0.11.1"
-source = "git+https://github.com/OSSystems/compress-tools-rs.git#9c0f4cba975a45734e329edd5db9d188120275f8"
+version = "0.11.2"
+source = "git+https://github.com/OSSystems/compress-tools-rs.git?branch=issue-59#821d400a5c9e526489e37d7252a427ec756296c5"
 dependencies = [
  "derive_more",
  "libc",
