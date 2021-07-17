@@ -9,6 +9,7 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::process::Command;
 use std::time::Duration;
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -189,16 +190,34 @@ pub async fn main() -> Result<()> {
                 )
                 .await?;
 
-                if let Some(contains_plugin) =
-                    nexus_api::metadata::contains_plugin(&client, &api_file).await?
-                {
-                    if !contains_plugin {
-                        info!("file metadata does not contain a plugin, skip downloading");
-                        continue;
+                match nexus_api::metadata::contains_plugin(&client, &api_file).await {
+                    Ok(contains_plugin) => {
+                        if let Some(contains_plugin) = contains_plugin {
+                            if !contains_plugin {
+                                info!("file metadata does not contain a plugin, skip downloading");
+                                continue;
+                            }
+                        } else {
+                            warn!("file has no metadata link");
+                        }
+                        Ok(())
                     }
-                } else {
-                    warn!("file has no metadata link");
-                }
+                    Err(err) => {
+                        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+                            if reqwest_err.status() == Some(StatusCode::NOT_FOUND) {
+                                warn!(
+                                    status = ?reqwest_err.status(),
+                                    "metadata for file not found on server"
+                                );
+                                Ok(())
+                            } else {
+                                Err(err)
+                            }
+                        } else {
+                            Err(err)
+                        }
+                    }
+                }?;
 
                 let download_link_resp =
                     nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)
@@ -208,7 +227,6 @@ pub async fn main() -> Result<()> {
                         if reqwest_err.status() == Some(StatusCode::NOT_FOUND) {
                             warn!(
                                 status = ?reqwest_err.status(),
-                                file_id = api_file.file_id,
                                 "failed to get download link for file"
                             );
                             file::update_has_download_link(&pool, db_file.id, false).await?;
@@ -255,8 +273,8 @@ pub async fn main() -> Result<()> {
                         if let Ok(list) = list {
                             for entry in list {
                                 if let Ok(entry) = entry {
-                                    if entry.is_file() && (
-                                        entry.filename.ends_with(".esp")
+                                    if entry.is_file()
+                                        && (entry.filename.ends_with(".esp")
                                             || entry.filename.ends_with(".esm")
                                             || entry.filename.ends_with(".esl"))
                                     {
@@ -324,7 +342,53 @@ pub async fn main() -> Result<()> {
                             file.seek(SeekFrom::Start(0))?;
                             let mut buf = Vec::default();
                             info!("uncompressing plugin file from downloaded archive");
-                            uncompress_archive_file(&mut file, &mut buf, file_name)?;
+                            match uncompress_archive_file(&mut file, &mut buf, file_name) {
+                                Ok(_) => Ok(()),
+                                Err(err) => {
+                                    if kind.mime_type() == "application/zip" {
+                                        // compress_tools or libarchive failed to extract zip file (e.g. archive is deflate64 compressed)
+                                        // Attempt to uncompress the archive using `unzip` unix command instead
+                                        warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with unzip instead");
+                                        file.seek(SeekFrom::Start(0))?;
+                                        let temp_dir = tempdir()?;
+                                        let temp_file_path = temp_dir
+                                            .path()
+                                            .join(format!("download.{}", kind.extension()));
+                                        let mut temp_file = std::fs::File::create(&temp_file_path)?;
+                                        std::io::copy(&mut file, &mut temp_file)?;
+                                        let extracted_path = temp_dir.path().join("extracted");
+
+                                        Command::new("unzip")
+                                            .args(&[
+                                                &temp_file_path.to_string_lossy(),
+                                                "-d",
+                                                &extracted_path.to_string_lossy(),
+                                            ])
+                                            .status()?;
+
+                                        for file_name in plugin_file_paths.iter() {
+                                            info!(
+                                                ?file_name,
+                                                "processing uncompressed file from downloaded archive"
+                                            );
+                                            let mut plugin_buf =
+                                                std::fs::read(extracted_path.join(file_name))?;
+                                            process_plugin(
+                                                &mut plugin_buf,
+                                                &pool,
+                                                &mut plugins_archive,
+                                                &db_file,
+                                                &db_mod,
+                                                file_name,
+                                            )
+                                            .await?;
+                                        }
+
+                                        break;
+                                    }
+                                    Err(err)
+                                }
+                            }?;
                             process_plugin(
                                 &mut buf,
                                 &pool,
