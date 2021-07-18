@@ -6,7 +6,7 @@ use std::{env, time::Duration};
 use tempfile::tempfile;
 use tokio::fs::File;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 
 use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
 
@@ -53,25 +53,33 @@ impl DownloadLinkResponse {
 
     #[instrument(skip(self, client))]
     pub async fn download_file(&self, client: &Client) -> Result<File> {
-        let mut tokio_file = File::from_std(tempfile()?);
-        let res = client
-            .get(self.link()?)
-            .header("apikey", env::var("NEXUS_API_KEY")?)
-            .header("user-agent", USER_AGENT)
-            .send()
-            .await?
-            .error_for_status()?;
-        info!(status = %res.status(), "downloading file from nexus");
+        for attempt in 1..=3 {
+            let mut tokio_file = File::from_std(tempfile()?);
+            let res = client
+                .get(self.link()?)
+                .header("apikey", env::var("NEXUS_API_KEY")?)
+                .header("user-agent", USER_AGENT)
+                .send()
+                .await?
+                .error_for_status()?;
+            info!(status = %res.status(), "downloading file from nexus");
 
-        // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
-        let mut byte_stream = res
-            .bytes_stream()
-            .map_err(|e| futures::io::Error::new(futures::io::ErrorKind::Other, e))
-            .into_async_read()
-            .compat();
+            // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
+            let mut byte_stream = res
+                .bytes_stream()
+                .map_err(|e| futures::io::Error::new(futures::io::ErrorKind::Other, e))
+                .into_async_read()
+                .compat();
 
-        tokio::io::copy(&mut byte_stream, &mut tokio_file).await?;
-
-        return Ok(tokio_file);
+            match tokio::io::copy(&mut byte_stream, &mut tokio_file).await {
+                Ok(_) => {
+                    return Ok(tokio_file);
+                }
+                Err(err) => {
+                    warn!(error = %err, attempt, "Failed to download file, trying again");
+                }
+            }
+        }
+        Err(anyhow!("Failed to download file in three attempts"))
     }
 }
