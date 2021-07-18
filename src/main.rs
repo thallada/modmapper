@@ -254,7 +254,13 @@ pub async fn main() -> Result<()> {
 
                 let mut initial_bytes = [0; 8];
                 tokio_file.seek(SeekFrom::Start(0)).await?;
-                tokio_file.read_exact(&mut initial_bytes).await?;
+                match tokio_file.read_exact(&mut initial_bytes).await {
+                    Err(err) => {
+                        warn!(error = %err, "failed to read initial bytes, skipping file");
+                        continue;
+                    }
+                    _ => {}
+                }
                 let kind = infer::get(&initial_bytes).expect("unknown file type of file download");
                 info!(
                     mime_type = kind.mime_type(),
