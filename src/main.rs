@@ -46,38 +46,44 @@ where
         return Ok(());
     }
     info!(bytes = plugin_buf.len(), "parsing plugin");
-    let plugin = parse_plugin(&plugin_buf)?;
-    info!(num_cells = plugin.cells.len(), "parse finished");
-    let hash = seahash::hash(&plugin_buf);
-    let plugin_row = plugin::insert(
-        &pool,
-        &db_file.name,
-        hash as i64,
-        db_file.id,
-        Some(plugin.header.version as f64),
-        plugin_buf.len() as i64,
-        plugin.header.author,
-        plugin.header.description,
-        Some(
-            &plugin
-                .header
-                .masters
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>(),
-        ),
-    )
-    .await?;
-    for cell in plugin.cells {
-        let cell_row = cell::insert(
-            &pool,
-            cell.form_id.try_into().unwrap(),
-            cell.x,
-            cell.y,
-            cell.is_persistent,
-        )
-        .await?;
-        plugin_cell::insert(&pool, plugin_row.id, cell_row.id, cell.editor_id).await?;
+    match parse_plugin(&plugin_buf) {
+        Ok(plugin) => {
+            info!(num_cells = plugin.cells.len(), "parse finished");
+            let hash = seahash::hash(&plugin_buf);
+            let plugin_row = plugin::insert(
+                &pool,
+                &db_file.name,
+                hash as i64,
+                db_file.id,
+                Some(plugin.header.version as f64),
+                plugin_buf.len() as i64,
+                plugin.header.author,
+                plugin.header.description,
+                Some(
+                    &plugin
+                        .header
+                        .masters
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<String>>(),
+                ),
+            )
+            .await?;
+            for cell in plugin.cells {
+                let cell_row = cell::insert(
+                    &pool,
+                    cell.form_id.try_into().unwrap(),
+                    cell.x,
+                    cell.y,
+                    cell.is_persistent,
+                )
+                .await?;
+                plugin_cell::insert(&pool, plugin_row.id, cell_row.id, cell.editor_id).await?;
+            }
+        }
+        Err(err) => {
+            warn!(error = %err, "Failed to parse plugin, skipping plugin");
+        }
     }
     plugin_archive.start_file(
         format!(
@@ -338,7 +344,7 @@ pub async fn main() -> Result<()> {
 
                         for file_name in plugin_file_paths.iter() {
                             let plugin_span = info_span!("plugin", name = ?file_name);
-                            let _plugin_span = plugin_span.enter();
+                            let plugin_span = plugin_span.enter();
                             file.seek(SeekFrom::Start(0))?;
                             let mut buf = Vec::default();
                             info!("uncompressing plugin file from downloaded archive");
@@ -349,6 +355,7 @@ pub async fn main() -> Result<()> {
                                         // compress_tools or libarchive failed to extract zip file (e.g. archive is deflate64 compressed)
                                         // Attempt to uncompress the archive using `unzip` unix command instead
                                         warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with unzip instead");
+                                        drop(plugin_span);
                                         file.seek(SeekFrom::Start(0))?;
                                         let temp_dir = tempdir()?;
                                         let temp_file_path = temp_dir
@@ -367,10 +374,10 @@ pub async fn main() -> Result<()> {
                                             .status()?;
 
                                         for file_name in plugin_file_paths.iter() {
-                                            info!(
-                                                ?file_name,
-                                                "processing uncompressed file from downloaded archive"
-                                            );
+                                            let plugin_span =
+                                                info_span!("plugin", name = ?file_name);
+                                            let _plugin_span = plugin_span.enter();
+                                            info!("processing uncompressed file from downloaded archive");
                                             let mut plugin_buf =
                                                 std::fs::read(extracted_path.join(file_name))?;
                                             process_plugin(
