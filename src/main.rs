@@ -162,12 +162,11 @@ pub async fn main() -> Result<()> {
             debug!(duration = ?files_resp.wait, "sleeping");
             sleep(files_resp.wait).await;
 
-            // Filter out replaced/deleted files (indicated by null category)
+            // Filter out replaced/deleted files (indicated by null category) and archived files
             let files = files_resp
                 .files()?
                 .into_iter()
                 .filter(|file| match file.category {
-                    Some(_) => true,
                     None => {
                         info!(
                             name = file.file_name,
@@ -176,6 +175,8 @@ pub async fn main() -> Result<()> {
                         );
                         false
                     }
+                    Some(category) if category == "ARCHIVED" => false,
+                    Some(_) => true,
                 });
 
             for api_file in files {
