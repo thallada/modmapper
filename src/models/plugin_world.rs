@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PluginCell {
+pub struct PluginWorld {
     pub id: i32,
     pub plugin_id: i32,
-    pub cell_id: i32,
-    pub editor_id: Option<String>,
+    pub world_id: i32,
+    pub editor_id: String,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
 }
@@ -17,22 +17,22 @@ pub struct PluginCell {
 pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     plugin_id: i32,
-    cell_id: i32,
-    editor_id: Option<String>,
-) -> Result<PluginCell> {
+    world_id: i32,
+    editor_id: &str,
+) -> Result<PluginWorld> {
     sqlx::query_as!(
-        PluginCell,
-        "INSERT INTO plugin_cells
-            (plugin_id, cell_id, editor_id, created_at, updated_at)
+        PluginWorld,
+        "INSERT INTO plugin_worlds
+            (plugin_id, world_id, editor_id, created_at, updated_at)
             VALUES ($1, $2, $3, now(), now())
-            ON CONFLICT (plugin_id, cell_id) DO UPDATE
+            ON CONFLICT (plugin_id, world_id) DO UPDATE
             SET (editor_id, updated_at) = (EXCLUDED.editor_id, now())
             RETURNING *",
         plugin_id,
-        cell_id,
+        world_id,
         editor_id,
     )
     .fetch_one(pool)
     .await
-    .context("Failed to insert plugin_cell")
+    .context("Failed to insert plugin_world")
 }
