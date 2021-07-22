@@ -27,7 +27,10 @@ use models::game;
 use models::plugin;
 use models::{cell, cell::UnsavedCell};
 use models::{file, file::File};
-use models::{game_mod, game_mod::Mod};
+use models::{
+    game_mod,
+    game_mod::{Mod, UnsavedMod},
+};
 use models::{plugin_cell, plugin_cell::UnsavedPluginCell};
 use models::{plugin_world, plugin_world::UnsavedPluginWorld};
 use models::{world, world::UnsavedWorld};
@@ -104,10 +107,7 @@ where
                         &file_name,
                     )
                     .expect("form_id to be a valid i32");
-                    UnsavedWorld {
-                        form_id,
-                        master: master.to_string(),
-                    }
+                    UnsavedWorld { form_id, master }
                 })
                 .collect();
             let db_worlds = world::batched_insert(&pool, &worlds).await?;
@@ -117,7 +117,7 @@ where
                 .map(|(db_world, plugin_world)| UnsavedPluginWorld {
                     plugin_id: plugin_row.id,
                     world_id: db_world.id,
-                    editor_id: plugin_world.editor_id.clone(),
+                    editor_id: &plugin_world.editor_id,
                 })
                 .collect();
             plugin_world::batched_insert(&pool, &plugin_worlds).await?;
@@ -151,7 +151,7 @@ where
                     .expect("form_id is a valid i32");
                     UnsavedCell {
                         form_id,
-                        master: master.to_string(),
+                        master,
                         x: cell.x,
                         y: cell.y,
                         world_id,
@@ -166,7 +166,7 @@ where
                 .map(|(db_cell, plugin_cell)| UnsavedPluginCell {
                     plugin_id: plugin_row.id,
                     cell_id: db_cell.id,
-                    editor_id: plugin_cell.editor_id.clone(),
+                    editor_id: plugin_cell.editor_id.as_ref().map(|id| id.as_ref()),
                 })
                 .collect();
             plugin_cell::batched_insert(&pool, &plugin_cells).await?;
@@ -213,7 +213,7 @@ pub async fn main() -> Result<()> {
         .max_connections(5)
         .connect(&env::var("DATABASE_URL")?)
         .await?;
-    let _game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
+    let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
     let client = reqwest::Client::new();
 
     let mut page: i32 = 1;
@@ -226,7 +226,7 @@ pub async fn main() -> Result<()> {
         let scraped = mod_list_resp.scrape_mods()?;
 
         has_next_page = scraped.has_next_page;
-        let mods = game_mod::bulk_get_by_nexus_mod_id(
+        let present_mods = game_mod::bulk_get_present_nexus_mod_ids(
             &pool,
             &scraped
                 .mods
@@ -235,6 +235,21 @@ pub async fn main() -> Result<()> {
                 .collect::<Vec<i32>>(),
         )
         .await?;
+        let mods_to_create: Vec<UnsavedMod> = scraped
+            .mods
+            .iter()
+            .filter(|scraped_mod| !present_mods.contains(&scraped_mod.nexus_mod_id))
+            .map(|scraped_mod| UnsavedMod {
+                name: scraped_mod.name,
+                nexus_mod_id: scraped_mod.nexus_mod_id,
+                author: scraped_mod.author,
+                category: scraped_mod.category,
+                description: scraped_mod.desc,
+                game_id: game.id,
+            })
+            .collect();
+
+        let mods = game_mod::batched_insert(&pool, &mods_to_create).await?;
 
         for db_mod in mods {
             let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
@@ -501,15 +516,12 @@ pub async fn main() -> Result<()> {
                 plugins_archive.finish()?;
                 debug!(duration = ?download_link_resp.wait, "sleeping");
                 sleep(download_link_resp.wait).await;
-                break;
             }
-            break;
         }
 
         page += 1;
         debug!(?page, ?has_next_page, "sleeping 1 second");
         sleep(Duration::from_secs(1)).await;
-        break;
     }
 
     Ok(())

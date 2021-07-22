@@ -16,11 +16,11 @@ pub struct PluginCell {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UnsavedPluginCell {
+#[derive(Debug)]
+pub struct UnsavedPluginCell<'a> {
     pub plugin_id: i32,
     pub cell_id: i32,
-    pub editor_id: Option<String>,
+    pub editor_id: Option<&'a str>,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -48,19 +48,19 @@ pub async fn insert(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn batched_insert(
+pub async fn batched_insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
-    plugin_cells: &[UnsavedPluginCell],
+    plugin_cells: &[UnsavedPluginCell<'a>],
 ) -> Result<Vec<PluginCell>> {
     let mut saved_plugin_cells = vec![];
     for batch in plugin_cells.chunks(BATCH_SIZE) {
         let mut plugin_ids: Vec<i32> = vec![];
         let mut cell_ids: Vec<i32> = vec![];
-        let mut editor_ids: Vec<Option<String>> = vec![];
+        let mut editor_ids: Vec<Option<&str>> = vec![];
         batch.into_iter().for_each(|unsaved_plugin_cell| {
             plugin_ids.push(unsaved_plugin_cell.plugin_id);
             cell_ids.push(unsaved_plugin_cell.cell_id);
-            editor_ids.push(unsaved_plugin_cell.editor_id.as_ref().map(|s| s.clone()));
+            editor_ids.push(unsaved_plugin_cell.editor_id);
         });
         saved_plugin_cells.append(
             // sqlx doesn't understand arrays of Options with the query_as! macro

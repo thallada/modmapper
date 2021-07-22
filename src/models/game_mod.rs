@@ -1,9 +1,12 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use tracing::instrument;
 
-#[derive(Debug, Serialize, Deserialize)]
+use super::BATCH_SIZE;
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Mod {
     pub id: i32,
     pub name: String,
@@ -14,6 +17,16 @@ pub struct Mod {
     pub game_id: i32,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug)]
+pub struct UnsavedMod<'a> {
+    pub name: &'a str,
+    pub nexus_mod_id: i32,
+    pub author: &'a str,
+    pub category: &'a str,
+    pub description: Option<&'a str>,
+    pub game_id: i32,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -32,18 +45,25 @@ pub async fn get_by_nexus_mod_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn bulk_get_by_nexus_mod_id(
+pub async fn bulk_get_present_nexus_mod_ids(
     pool: &sqlx::Pool<sqlx::Postgres>,
     nexus_mod_ids: &[i32],
-) -> Result<Vec<Mod>> {
-    sqlx::query_as!(
-        Mod,
-        "SELECT * FROM mods WHERE nexus_mod_id = ANY($1::int[])",
+) -> Result<Vec<i32>> {
+    struct Row {
+        nexus_mod_id: i32,
+    }
+
+    Ok(sqlx::query_as!(
+        Row,
+        "SELECT nexus_mod_id FROM mods WHERE nexus_mod_id = ANY($1::int[])",
         nexus_mod_ids,
     )
     .fetch_all(pool)
     .await
-    .context("Failed to get mods")
+    .context("Failed to get mods")?
+    .into_iter()
+    .map(|row| row.nexus_mod_id)
+    .collect())
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -75,4 +95,51 @@ pub async fn insert(
     .fetch_one(pool)
     .await
     .context("Failed to insert or update mod")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn batched_insert<'a>(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    mods: &[UnsavedMod<'a>],
+) -> Result<Vec<Mod>> {
+    let mut saved_mods = vec![];
+    for batch in mods.chunks(BATCH_SIZE) {
+        let mut names: Vec<&str> = vec![];
+        let mut nexus_mod_ids: Vec<i32> = vec![];
+        let mut authors: Vec<&str> = vec![];
+        let mut categories: Vec<&str> = vec![];
+        let mut descriptions: Vec<Option<&str>> = vec![];
+        let mut game_ids: Vec<i32> = vec![];
+        batch.into_iter().for_each(|unsaved_mod| {
+            names.push(unsaved_mod.name);
+            nexus_mod_ids.push(unsaved_mod.nexus_mod_id);
+            authors.push(unsaved_mod.author);
+            categories.push(unsaved_mod.category);
+            descriptions.push(unsaved_mod.description);
+            game_ids.push(unsaved_mod.game_id);
+        });
+        saved_mods.append(
+            // sqlx doesn't understand arrays of Options with the query_as! macro
+            &mut sqlx::query_as(
+                r#"INSERT INTO mods
+                (name, nexus_mod_id, author, category, description, game_id, created_at, updated_at)
+                SELECT *, now(), now()
+                FROM UNNEST($1::text[], $2::int[], $3::text[], $4::text[], $5::text[], $6::int[])
+                ON CONFLICT (game_id, nexus_mod_id) DO UPDATE
+                SET (name, author, category, description, updated_at) =
+                (EXCLUDED.name, EXCLUDED.author, EXCLUDED.category, EXCLUDED.description, now())
+                RETURNING *"#,
+            )
+            .bind(&names)
+            .bind(&nexus_mod_ids)
+            .bind(&authors)
+            .bind(&categories)
+            .bind(&descriptions)
+            .bind(&game_ids)
+            .fetch_all(pool)
+            .await
+            .context("Failed to insert mods")?,
+        );
+    }
+    Ok(saved_mods)
 }

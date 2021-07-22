@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use tracing::instrument;
 
 use super::BATCH_SIZE;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct World {
     pub id: i32,
     pub form_id: i32,
@@ -14,10 +15,10 @@ pub struct World {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UnsavedWorld {
+#[derive(Debug)]
+pub struct UnsavedWorld<'a> {
     pub form_id: i32,
-    pub master: String,
+    pub master: &'a str,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -43,29 +44,29 @@ pub async fn insert(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn batched_insert(
+pub async fn batched_insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
-    worlds: &[UnsavedWorld],
+    worlds: &[UnsavedWorld<'a>],
 ) -> Result<Vec<World>> {
     let mut saved_worlds = vec![];
     for batch in worlds.chunks(BATCH_SIZE) {
         let mut form_ids: Vec<i32> = vec![];
-        let mut masters: Vec<String> = vec![];
+        let mut masters: Vec<&str> = vec![];
         batch.into_iter().for_each(|unsaved_world| {
             form_ids.push(unsaved_world.form_id);
-            masters.push(unsaved_world.master.clone());
+            masters.push(unsaved_world.master);
         });
         saved_worlds.append(
-            &mut sqlx::query_as!(
-                World,
+            // cannot use macro with types that have lifetimes: https://github.com/launchbadge/sqlx/issues/280
+            &mut sqlx::query_as(
                 r#"INSERT INTO worlds (form_id, master, created_at, updated_at)
                 SELECT *, now(), now() FROM UNNEST($1::int[], $2::text[])
                 ON CONFLICT (form_id, master) DO UPDATE
                 SET updated_at = now()
                 RETURNING *"#,
-                &form_ids,
-                &masters
             )
+            .bind(&form_ids)
+            .bind(&masters)
             .fetch_all(pool)
             .await
             .context("Failed to insert worlds")?,

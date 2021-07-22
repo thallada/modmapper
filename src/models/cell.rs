@@ -19,10 +19,10 @@ pub struct Cell {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UnsavedCell {
+#[derive(Debug)]
+pub struct UnsavedCell<'a> {
     pub form_id: i32,
-    pub master: String,
+    pub master: &'a str,
     pub x: Option<i32>,
     pub y: Option<i32>,
     pub world_id: Option<i32>,
@@ -61,21 +61,21 @@ pub async fn insert(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn batched_insert(
+pub async fn batched_insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
-    cells: &[UnsavedCell],
+    cells: &[UnsavedCell<'a>],
 ) -> Result<Vec<Cell>> {
     let mut saved_cells = vec![];
     for batch in cells.chunks(BATCH_SIZE) {
         let mut form_ids: Vec<i32> = vec![];
-        let mut masters: Vec<String> = vec![];
+        let mut masters: Vec<&str> = vec![];
         let mut xs: Vec<Option<i32>> = vec![];
         let mut ys: Vec<Option<i32>> = vec![];
         let mut world_ids: Vec<Option<i32>> = vec![];
         let mut is_persistents: Vec<bool> = vec![];
         batch.into_iter().for_each(|unsaved_cell| {
             form_ids.push(unsaved_cell.form_id);
-            masters.push(unsaved_cell.master.clone());
+            masters.push(unsaved_cell.master);
             xs.push(unsaved_cell.x);
             ys.push(unsaved_cell.y);
             world_ids.push(unsaved_cell.world_id);
