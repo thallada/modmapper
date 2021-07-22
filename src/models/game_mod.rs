@@ -49,21 +49,14 @@ pub async fn bulk_get_present_nexus_mod_ids(
     pool: &sqlx::Pool<sqlx::Postgres>,
     nexus_mod_ids: &[i32],
 ) -> Result<Vec<i32>> {
-    struct Row {
-        nexus_mod_id: i32,
-    }
-
-    Ok(sqlx::query_as!(
-        Row,
+    sqlx::query!(
         "SELECT nexus_mod_id FROM mods WHERE nexus_mod_id = ANY($1::int[])",
         nexus_mod_ids,
     )
+    .map(|row| row.nexus_mod_id)
     .fetch_all(pool)
     .await
-    .context("Failed to get mods")?
-    .into_iter()
-    .map(|row| row.nexus_mod_id)
-    .collect())
+    .context("Failed to get mods")
 }
 
 #[instrument(level = "debug", skip(pool))]
