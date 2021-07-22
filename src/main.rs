@@ -7,10 +7,8 @@ use sqlx::postgres::PgPoolOptions;
 use std::convert::TryInto;
 use std::env;
 use std::fs::OpenOptions;
-use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
-use std::ops::Index;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -20,7 +18,6 @@ use tokio::time::sleep;
 use tracing::{debug, info, info_span, warn};
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
-use zip::ZipArchive;
 
 mod models;
 mod nexus_api;
@@ -49,16 +46,16 @@ fn get_local_form_id_and_master<'a>(
     Ok((local_form_id, masters[master_index]))
 }
 
-async fn process_plugin(
+async fn process_plugin<W>(
     plugin_buf: &mut [u8],
     pool: &sqlx::Pool<sqlx::Postgres>,
-    // plugin_archive: &mut ZipWriter<W>,
+    plugin_archive: &mut ZipWriter<W>,
     db_file: &File,
     mod_obj: &Mod,
     file_path: &str,
 ) -> Result<()>
-// where
-//     W: std::io::Write + std::io::Seek,
+where
+    W: std::io::Write + std::io::Seek,
 {
     if plugin_buf.len() == 0 {
         warn!("skipping processing of invalid empty plugin");
@@ -178,17 +175,16 @@ async fn process_plugin(
             warn!(error = %err, "Failed to parse plugin, skipping plugin");
         }
     }
-    // TODO: re-enable after db fix
-    // plugin_archive.start_file(
-    //     format!(
-    //         "{}/{}/{}/{}",
-    //         GAME_NAME, mod_obj.nexus_mod_id, db_file.nexus_file_id, file_path
-    //     ),
-    //     FileOptions::default(),
-    // )?;
+    plugin_archive.start_file(
+        format!(
+            "{}/{}/{}/{}",
+            GAME_NAME, mod_obj.nexus_mod_id, db_file.nexus_file_id, file_path
+        ),
+        FileOptions::default(),
+    )?;
 
-    // let mut reader = std::io::Cursor::new(&plugin_buf);
-    // std::io::copy(&mut reader, plugin_archive)?;
+    let mut reader = std::io::Cursor::new(&plugin_buf);
+    std::io::copy(&mut reader, plugin_archive)?;
     Ok(())
 }
 
@@ -217,60 +213,8 @@ pub async fn main() -> Result<()> {
         .max_connections(5)
         .connect(&env::var("DATABASE_URL")?)
         .await?;
-    let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
+    let _game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
     let client = reqwest::Client::new();
-
-    // DELETEME: just running this to clean up the existing database rows
-    let plugins_archive = std::fs::File::open("plugins.zip")?;
-    let mut plugins_archive = ZipArchive::new(plugins_archive)?;
-    let file_paths: Vec<String> = plugins_archive
-        .file_names()
-        .map(|s| s.to_string())
-        .collect();
-    for (i, file_name) in file_paths.iter().enumerate() {
-        info!("plugin: {:?} / {:?}. {}", i, file_paths.len(), file_name);
-        let file_path = Path::new(file_name);
-        let mut components = file_path.components();
-        let _game_name = components.next().expect("game directory");
-        let nexus_mod_id: i32 = components
-            .next()
-            .expect("mod_id directory")
-            .as_os_str()
-            .to_string_lossy()
-            .parse()?;
-        let nexus_file_id: i32 = components
-            .next()
-            .expect("file_id directory")
-            .as_os_str()
-            .to_string_lossy()
-            .parse()?;
-        let original_file_path: &Path = components.as_ref();
-        let original_file_path = original_file_path.to_string_lossy();
-        if let Some(db_mod) = game_mod::get_by_nexus_mod_id(&pool, nexus_mod_id).await? {
-            if let Some(db_file) = file::get_by_nexus_file_id(&pool, nexus_file_id).await? {
-                let mut plugin_file = plugins_archive.by_name(file_name)?;
-                let mut plugin_buf = Vec::new();
-                plugin_file.read_to_end(&mut plugin_buf)?;
-                info!(
-                    nexus_mod_id,
-                    nexus_file_id, %original_file_path, "processing plugin"
-                );
-                process_plugin(
-                    &mut plugin_buf,
-                    &pool,
-                    &db_file,
-                    &db_mod,
-                    &original_file_path,
-                )
-                .await?;
-            } else {
-                warn!(nexus_file_id, "missing db file!");
-            }
-        } else {
-            warn!(nexus_mod_id, "missing db mod!");
-        }
-    }
-    return Ok(());
 
     let mut page: i32 = 1;
     let mut has_next_page = true;
@@ -282,26 +226,15 @@ pub async fn main() -> Result<()> {
         let scraped = mod_list_resp.scrape_mods()?;
 
         has_next_page = scraped.has_next_page;
-        let mut mods = Vec::new();
-        for scraped_mod in scraped.mods {
-            // TODO: this logic needs to change once I clean up the existing database rows
-            if let Some(game_mod) =
-                game_mod::get_by_nexus_mod_id(&pool, scraped_mod.nexus_mod_id).await?
-            {
-                mods.push(
-                    game_mod::insert(
-                        &pool,
-                        scraped_mod.name,
-                        scraped_mod.nexus_mod_id,
-                        scraped_mod.author,
-                        scraped_mod.category,
-                        scraped_mod.desc,
-                        game.id,
-                    )
-                    .await?,
-                );
-            }
-        }
+        let mods = game_mod::bulk_get_by_nexus_mod_id(
+            &pool,
+            &scraped
+                .mods
+                .iter()
+                .map(|scraped_mod| scraped_mod.nexus_mod_id)
+                .collect::<Vec<i32>>(),
+        )
+        .await?;
 
         for db_mod in mods {
             let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
@@ -470,7 +403,7 @@ pub async fn main() -> Result<()> {
                                 process_plugin(
                                     &mut plugin_buf,
                                     &pool,
-                                    // &mut plugins_archive,
+                                    &mut plugins_archive,
                                     &db_file,
                                     &db_mod,
                                     file_path,
@@ -539,7 +472,7 @@ pub async fn main() -> Result<()> {
                                             process_plugin(
                                                 &mut plugin_buf,
                                                 &pool,
-                                                // &mut plugins_archive,
+                                                &mut plugins_archive,
                                                 &db_file,
                                                 &db_mod,
                                                 file_path,
@@ -553,8 +486,12 @@ pub async fn main() -> Result<()> {
                                 }
                             }?;
                             process_plugin(
-                                &mut buf, &pool, // &mut plugins_archive,
-                                &db_file, &db_mod, file_path,
+                                &mut buf,
+                                &pool,
+                                &mut plugins_archive,
+                                &db_file,
+                                &db_mod,
+                                file_path,
                             )
                             .await?;
                         }
@@ -564,12 +501,15 @@ pub async fn main() -> Result<()> {
                 plugins_archive.finish()?;
                 debug!(duration = ?download_link_resp.wait, "sleeping");
                 sleep(download_link_resp.wait).await;
+                break;
             }
+            break;
         }
 
         page += 1;
         debug!(?page, ?has_next_page, "sleeping 1 second");
         sleep(Duration::from_secs(1)).await;
+        break;
     }
 
     Ok(())

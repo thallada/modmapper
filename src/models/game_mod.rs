@@ -32,6 +32,21 @@ pub async fn get_by_nexus_mod_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
+pub async fn bulk_get_by_nexus_mod_id(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    nexus_mod_ids: &[i32],
+) -> Result<Vec<Mod>> {
+    sqlx::query_as!(
+        Mod,
+        "SELECT * FROM mods WHERE nexus_mod_id = ANY($1::int[])",
+        nexus_mod_ids,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get mods")
+}
+
+#[instrument(level = "debug", skip(pool))]
 pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,
