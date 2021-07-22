@@ -21,6 +21,21 @@ pub struct File {
 }
 
 #[instrument(level = "debug", skip(pool))]
+pub async fn get_by_nexus_file_id(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    nexus_file_id: i32,
+) -> Result<Option<File>> {
+    sqlx::query_as!(
+        File,
+        "SELECT * FROM files WHERE nexus_file_id = $1",
+        nexus_file_id,
+    )
+    .fetch_optional(pool)
+    .await
+    .context("Failed to get file")
+}
+
+#[instrument(level = "debug", skip(pool))]
 pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,

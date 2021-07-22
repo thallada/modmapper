@@ -7,8 +7,11 @@ use sqlx::postgres::PgPoolOptions;
 use std::convert::TryInto;
 use std::env;
 use std::fs::OpenOptions;
+use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::ops::Index;
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -17,29 +20,45 @@ use tokio::time::sleep;
 use tracing::{debug, info, info_span, warn};
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
+use zip::ZipArchive;
 
 mod models;
 mod nexus_api;
 mod nexus_scraper;
 
-use models::cell;
 use models::game;
 use models::plugin;
-use models::plugin_cell;
+use models::{cell, cell::UnsavedCell};
 use models::{file, file::File};
 use models::{game_mod, game_mod::Mod};
+use models::{plugin_cell, plugin_cell::UnsavedPluginCell};
+use models::{plugin_world, plugin_world::UnsavedPluginWorld};
+use models::{world, world::UnsavedWorld};
 use nexus_api::{GAME_ID, GAME_NAME};
 
-async fn process_plugin<W>(
+fn get_local_form_id_and_master<'a>(
+    form_id: u32,
+    masters: &'a [&str],
+    file_name: &'a str,
+) -> Result<(i32, &'a str)> {
+    let master_index = (form_id >> 24) as usize;
+    let local_form_id = (form_id & 0xFFFFFF).try_into()?;
+    if master_index >= masters.len() {
+        return Ok((local_form_id, file_name));
+    }
+    Ok((local_form_id, masters[master_index]))
+}
+
+async fn process_plugin(
     plugin_buf: &mut [u8],
     pool: &sqlx::Pool<sqlx::Postgres>,
-    plugin_archive: &mut ZipWriter<W>,
+    // plugin_archive: &mut ZipWriter<W>,
     db_file: &File,
     mod_obj: &Mod,
-    file_name: &str,
+    file_path: &str,
 ) -> Result<()>
-where
-    W: std::io::Write + std::io::Seek,
+// where
+//     W: std::io::Write + std::io::Seek,
 {
     if plugin_buf.len() == 0 {
         warn!("skipping processing of invalid empty plugin");
@@ -48,55 +67,128 @@ where
     info!(bytes = plugin_buf.len(), "parsing plugin");
     match parse_plugin(&plugin_buf) {
         Ok(plugin) => {
-            info!(num_cells = plugin.cells.len(), "parse finished");
+            info!(
+                num_worlds = plugin.worlds.len(),
+                num_cells = plugin.cells.len(),
+                "parse finished"
+            );
             let hash = seahash::hash(&plugin_buf);
+            let file_name = Path::new(file_path)
+                .file_name()
+                .expect("plugin path ends in a valid file_name")
+                .to_string_lossy();
             let plugin_row = plugin::insert(
                 &pool,
                 &db_file.name,
                 hash as i64,
                 db_file.id,
-                Some(plugin.header.version as f64),
+                plugin.header.version as f64,
                 plugin_buf.len() as i64,
                 plugin.header.author,
                 plugin.header.description,
-                Some(
-                    &plugin
-                        .header
-                        .masters
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect::<Vec<String>>(),
-                ),
+                &plugin
+                    .header
+                    .masters
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>(),
+                &file_name,
+                file_path,
             )
             .await?;
-            for cell in plugin.cells {
-                let cell_row = cell::insert(
-                    &pool,
-                    cell.form_id.try_into().unwrap(),
-                    cell.x,
-                    cell.y,
-                    // TODO: fill in world_id here
-                    None,
-                    cell.is_persistent,
-                )
-                .await?;
-                plugin_cell::insert(&pool, plugin_row.id, cell_row.id, cell.editor_id).await?;
-            }
+
+            let worlds: Vec<UnsavedWorld> = plugin
+                .worlds
+                .iter()
+                .map(|world| {
+                    let (form_id, master) = get_local_form_id_and_master(
+                        world.form_id,
+                        &plugin.header.masters,
+                        &file_name,
+                    )
+                    .expect("form_id to be a valid i32");
+                    UnsavedWorld {
+                        form_id,
+                        master: master.to_string(),
+                    }
+                })
+                .collect();
+            let db_worlds = world::batched_insert(&pool, &worlds).await?;
+            let plugin_worlds: Vec<UnsavedPluginWorld> = db_worlds
+                .iter()
+                .zip(&plugin.worlds)
+                .map(|(db_world, plugin_world)| UnsavedPluginWorld {
+                    plugin_id: plugin_row.id,
+                    world_id: db_world.id,
+                    editor_id: plugin_world.editor_id.clone(),
+                })
+                .collect();
+            plugin_world::batched_insert(&pool, &plugin_worlds).await?;
+
+            let cells: Vec<UnsavedCell> = plugin
+                .cells
+                .iter()
+                .map(|cell| {
+                    let world_id = if let Some(world_form_id) = cell.world_form_id {
+                        let (form_id, master) = get_local_form_id_and_master(
+                            world_form_id,
+                            &plugin.header.masters,
+                            &file_name,
+                        )
+                        .expect("form_id to be valid i32");
+                        Some(
+                            db_worlds
+                                .iter()
+                                .find(|&world| world.form_id == form_id && world.master == master)
+                                .expect("cell references world in the plugin worlds")
+                                .id,
+                        )
+                    } else {
+                        None
+                    };
+                    let (form_id, master) = get_local_form_id_and_master(
+                        cell.form_id,
+                        &plugin.header.masters,
+                        &file_name,
+                    )
+                    .expect("form_id is a valid i32");
+                    UnsavedCell {
+                        form_id,
+                        master: master.to_string(),
+                        x: cell.x,
+                        y: cell.y,
+                        world_id,
+                        is_persistent: cell.is_persistent,
+                    }
+                })
+                .collect();
+            let db_cells = cell::batched_insert(&pool, &cells).await?;
+            let plugin_cells: Vec<UnsavedPluginCell> = db_cells
+                .iter()
+                .zip(&plugin.cells)
+                .map(|(db_cell, plugin_cell)| UnsavedPluginCell {
+                    plugin_id: plugin_row.id,
+                    cell_id: db_cell.id,
+                    editor_id: plugin_cell.editor_id.clone(),
+                })
+                .collect();
+            plugin_cell::batched_insert(&pool, &plugin_cells).await?;
         }
         Err(err) => {
             warn!(error = %err, "Failed to parse plugin, skipping plugin");
         }
     }
-    plugin_archive.start_file(
-        format!(
-            "{}/{}/{}/{}",
-            GAME_NAME, mod_obj.nexus_mod_id, db_file.nexus_file_id, file_name
-        ),
-        FileOptions::default(),
-    )?;
+    // TODO: re-enable after db fix
+    // plugin_archive.start_file(
+    //     format!(
+    //         "{}/{}/{}/{}",
+    //         GAME_NAME, mod_obj.nexus_mod_id, db_file.nexus_file_id, file_path
+    //     ),
+    //     FileOptions::default(),
+    // )?;
 
-    let mut reader = std::io::Cursor::new(&plugin_buf);
-    std::io::copy(&mut reader, plugin_archive)?;
+    // let mut reader = std::io::Cursor::new(&plugin_buf);
+    // std::io::copy(&mut reader, plugin_archive)?;
     Ok(())
 }
 
@@ -128,6 +220,58 @@ pub async fn main() -> Result<()> {
     let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
     let client = reqwest::Client::new();
 
+    // DELETEME: just running this to clean up the existing database rows
+    let plugins_archive = std::fs::File::open("plugins.zip")?;
+    let mut plugins_archive = ZipArchive::new(plugins_archive)?;
+    let file_paths: Vec<String> = plugins_archive
+        .file_names()
+        .map(|s| s.to_string())
+        .collect();
+    for (i, file_name) in file_paths.iter().enumerate() {
+        info!("plugin: {:?} / {:?}. {}", i, file_paths.len(), file_name);
+        let file_path = Path::new(file_name);
+        let mut components = file_path.components();
+        let _game_name = components.next().expect("game directory");
+        let nexus_mod_id: i32 = components
+            .next()
+            .expect("mod_id directory")
+            .as_os_str()
+            .to_string_lossy()
+            .parse()?;
+        let nexus_file_id: i32 = components
+            .next()
+            .expect("file_id directory")
+            .as_os_str()
+            .to_string_lossy()
+            .parse()?;
+        let original_file_path: &Path = components.as_ref();
+        let original_file_path = original_file_path.to_string_lossy();
+        if let Some(db_mod) = game_mod::get_by_nexus_mod_id(&pool, nexus_mod_id).await? {
+            if let Some(db_file) = file::get_by_nexus_file_id(&pool, nexus_file_id).await? {
+                let mut plugin_file = plugins_archive.by_name(file_name)?;
+                let mut plugin_buf = Vec::new();
+                plugin_file.read_to_end(&mut plugin_buf)?;
+                info!(
+                    nexus_mod_id,
+                    nexus_file_id, %original_file_path, "processing plugin"
+                );
+                process_plugin(
+                    &mut plugin_buf,
+                    &pool,
+                    &db_file,
+                    &db_mod,
+                    &original_file_path,
+                )
+                .await?;
+            } else {
+                warn!(nexus_file_id, "missing db file!");
+            }
+        } else {
+            warn!(nexus_mod_id, "missing db mod!");
+        }
+    }
+    return Ok(());
+
     let mut page: i32 = 1;
     let mut has_next_page = true;
 
@@ -140,7 +284,10 @@ pub async fn main() -> Result<()> {
         has_next_page = scraped.has_next_page;
         let mut mods = Vec::new();
         for scraped_mod in scraped.mods {
-            if let None = game_mod::get_by_nexus_mod_id(&pool, scraped_mod.nexus_mod_id).await? {
+            // TODO: this logic needs to change once I clean up the existing database rows
+            if let Some(game_mod) =
+                game_mod::get_by_nexus_mod_id(&pool, scraped_mod.nexus_mod_id).await?
+            {
                 mods.push(
                     game_mod::insert(
                         &pool,
@@ -313,20 +460,20 @@ pub async fn main() -> Result<()> {
                                 .process()
                                 .expect("failed to extract");
 
-                            for file_name in plugin_file_paths.iter() {
+                            for file_path in plugin_file_paths.iter() {
                                 info!(
-                                    ?file_name,
+                                    ?file_path,
                                     "processing uncompressed file from downloaded archive"
                                 );
                                 let mut plugin_buf =
-                                    std::fs::read(temp_dir.path().join(file_name))?;
+                                    std::fs::read(temp_dir.path().join(file_path))?;
                                 process_plugin(
                                     &mut plugin_buf,
                                     &pool,
-                                    &mut plugins_archive,
+                                    // &mut plugins_archive,
                                     &db_file,
                                     &db_mod,
-                                    file_name,
+                                    file_path,
                                 )
                                 .await?;
                             }
@@ -338,12 +485,12 @@ pub async fn main() -> Result<()> {
                         let mut file = tokio_file.try_clone().await?.into_std().await;
                         let mut plugin_file_paths = Vec::new();
 
-                        for file_name in list_archive_files(&file)? {
-                            if file_name.ends_with(".esp")
-                                || file_name.ends_with(".esm")
-                                || file_name.ends_with(".esl")
+                        for file_path in list_archive_files(&file)? {
+                            if file_path.ends_with(".esp")
+                                || file_path.ends_with(".esm")
+                                || file_path.ends_with(".esl")
                             {
-                                plugin_file_paths.push(file_name);
+                                plugin_file_paths.push(file_path);
                             }
                         }
                         info!(
@@ -351,13 +498,13 @@ pub async fn main() -> Result<()> {
                             "listed plugins in downloaded archive"
                         );
 
-                        for file_name in plugin_file_paths.iter() {
-                            let plugin_span = info_span!("plugin", name = ?file_name);
+                        for file_path in plugin_file_paths.iter() {
+                            let plugin_span = info_span!("plugin", name = ?file_path);
                             let plugin_span = plugin_span.enter();
                             file.seek(SeekFrom::Start(0))?;
                             let mut buf = Vec::default();
                             info!("uncompressing plugin file from downloaded archive");
-                            match uncompress_archive_file(&mut file, &mut buf, file_name) {
+                            match uncompress_archive_file(&mut file, &mut buf, file_path) {
                                 Ok(_) => Ok(()),
                                 Err(err) => {
                                     if kind.mime_type() == "application/zip" {
@@ -382,20 +529,20 @@ pub async fn main() -> Result<()> {
                                             ])
                                             .status()?;
 
-                                        for file_name in plugin_file_paths.iter() {
+                                        for file_path in plugin_file_paths.iter() {
                                             let plugin_span =
-                                                info_span!("plugin", name = ?file_name);
+                                                info_span!("plugin", name = ?file_path);
                                             let _plugin_span = plugin_span.enter();
                                             info!("processing uncompressed file from downloaded archive");
                                             let mut plugin_buf =
-                                                std::fs::read(extracted_path.join(file_name))?;
+                                                std::fs::read(extracted_path.join(file_path))?;
                                             process_plugin(
                                                 &mut plugin_buf,
                                                 &pool,
-                                                &mut plugins_archive,
+                                                // &mut plugins_archive,
                                                 &db_file,
                                                 &db_mod,
-                                                file_name,
+                                                file_path,
                                             )
                                             .await?;
                                         }
@@ -406,12 +553,8 @@ pub async fn main() -> Result<()> {
                                 }
                             }?;
                             process_plugin(
-                                &mut buf,
-                                &pool,
-                                &mut plugins_archive,
-                                &db_file,
-                                &db_mod,
-                                file_name,
+                                &mut buf, &pool, // &mut plugins_archive,
+                                &db_file, &db_mod, file_path,
                             )
                             .await?;
                         }

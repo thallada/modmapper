@@ -6,3 +6,5 @@ pub mod plugin;
 pub mod plugin_cell;
 pub mod plugin_world;
 pub mod world;
+
+pub const BATCH_SIZE: usize = 50;

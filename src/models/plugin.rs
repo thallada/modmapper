@@ -9,11 +9,13 @@ pub struct Plugin {
     pub name: String,
     pub hash: i64,
     pub file_id: i32,
-    pub version: Option<f64>,
+    pub version: f64,
     pub size: i64,
     pub author: Option<String>,
     pub description: Option<String>,
-    pub masters: Option<Vec<String>>,
+    pub masters: Vec<String>,
+    pub file_name: String,
+    pub file_path: String,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
 }
@@ -24,20 +26,22 @@ pub async fn insert(
     name: &str,
     hash: i64,
     file_id: i32,
-    version: Option<f64>,
+    version: f64,
     size: i64,
     author: Option<&str>,
     description: Option<&str>,
-    masters: Option<&[String]>,
+    masters: &[String],
+    file_name: &str,
+    file_path: &str,
 ) -> Result<Plugin> {
     sqlx::query_as!(
         Plugin,
         "INSERT INTO plugins
-            (name, hash, file_id, version, size, author, description, masters, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
-            ON CONFLICT (file_id, name) DO UPDATE
-            SET (hash, version, author, description, masters, updated_at) =
-            (EXCLUDED.hash, EXCLUDED.version, EXCLUDED.author, EXCLUDED.description, EXCLUDED.masters, now())
+            (name, hash, file_id, version, size, author, description, masters, file_name, file_path, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
+            ON CONFLICT (file_id, file_path) DO UPDATE
+            SET (name, hash, version, author, description, masters, file_name, updated_at) =
+            (EXCLUDED.name, EXCLUDED.hash, EXCLUDED.version, EXCLUDED.author, EXCLUDED.description, EXCLUDED.masters, EXCLUDED.file_name, now())
             RETURNING *",
         name,
         hash,
@@ -46,7 +50,9 @@ pub async fn insert(
         size,
         author,
         description,
-        masters
+        masters,
+        file_name,
+        file_path
     )
     .fetch_one(pool)
     .await
