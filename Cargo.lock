@@ -2299,8 +2299,7 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 [[package]]
 name = "unrar"
 version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "433cea4f0b7bec88d47becb380887b8786a3cfb1c82e1ef9d32a682ba6801814"
+source = "git+https://github.com/muja/unrar.rs.git#d4f20fc09c7a6f6e7e50ad02f1e86e9de44b78ce"
 dependencies = [
  "bitflags",
  "enum_primitive",
@@ -2308,13 +2307,13 @@ dependencies = [
  "num",
  "regex",
  "unrar_sys",
+ "widestring",
 ]
 
 [[package]]
 name = "unrar_sys"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0009399408dc0bcc5c8910672544fceceeba18b91f741ff943916e917d982c60"
+source = "git+https://github.com/muja/unrar.rs.git#d4f20fc09c7a6f6e7e50ad02f1e86e9de44b78ce"
 dependencies = [
  "cc",
  "libc",
@@ -2460,6 +2459,12 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
 ]
+
+[[package]]
+name = "widestring"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
 
 [[package]]
 name = "winapi"

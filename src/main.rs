@@ -391,7 +391,7 @@ pub async fn main() -> Result<()> {
 
                         let mut plugin_file_paths = Vec::new();
                         let list =
-                            Archive::new(temp_file_path.to_string_lossy().to_string()).list();
+                            Archive::new(&temp_file_path.to_string_lossy().to_string())?.list();
                         if let Ok(list) = list {
                             for entry in list {
                                 if let Ok(entry) = entry {
@@ -421,7 +421,7 @@ pub async fn main() -> Result<()> {
                         if plugin_file_paths.len() > 0 {
                             info!("uncompressing downloaded archive");
                             let extract =
-                                Archive::new(temp_file_path.to_string_lossy().to_string())
+                                Archive::new(&temp_file_path.to_string_lossy().to_string())?
                                     .extract_to(temp_dir.path().to_string_lossy().to_string());
                             extract
                                 .expect("failed to extract")
@@ -441,7 +441,7 @@ pub async fn main() -> Result<()> {
                                     &mut plugins_archive,
                                     &db_file,
                                     &db_mod,
-                                    file_path,
+                                    &file_path.to_string_lossy(),
                                 )
                                 .await?;
                             }

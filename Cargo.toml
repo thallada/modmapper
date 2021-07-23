@@ -29,6 +29,7 @@ tokio-util = { version = "0.6", features = ["compat"] }
 tracing = "0.1"
 tracing-appender = "0.1"
 tracing-subscriber = "0.2"
-unrar = "0.4"
+# Need this unicode fix: https://github.com/muja/unrar.rs/commit/3af9a6015dc89c1329a2fe5d6f4a7f69ded8ba1d
+unrar = { git = "https://github.com/muja/unrar.rs.git" }
 # Need `ZipWriter::append_new` from https://github.com/zip-rs/zip/commit/ce272616ac69b798bb7b0925147a8a710dc2bb65
 zip = { git = "https://github.com/zip-rs/zip.git" }
