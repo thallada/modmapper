@@ -22,7 +22,7 @@ pub struct ModListScrape<'a> {
 }
 
 #[instrument(skip(client))]
-pub async fn get_mod_list_page(client: &Client, page: i32) -> Result<ModListResponse> {
+pub async fn get_mod_list_page(client: &Client, page: usize) -> Result<ModListResponse> {
     let res = client
         .get(format!(
             "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,include_adult:true,page_size:80,show_game_filter:false,open:false,page:{},sort_by:OLD_u_downloads",

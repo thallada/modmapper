@@ -1,4 +1,5 @@
 use anyhow::Result;
+use argh::FromArgs;
 use compress_tools::{list_archive_files, uncompress_archive_file};
 use dotenv::dotenv;
 use reqwest::StatusCode;
@@ -15,7 +16,7 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
-use tracing::{debug, info, info_span, warn};
+use tracing::{debug, error, info, info_span, warn};
 use unrar::Archive;
 use zip::write::{FileOptions, ZipWriter};
 
@@ -35,6 +36,14 @@ use models::{plugin_cell, plugin_cell::UnsavedPluginCell};
 use models::{plugin_world, plugin_world::UnsavedPluginWorld};
 use models::{world, world::UnsavedWorld};
 use nexus_api::{GAME_ID, GAME_NAME};
+
+#[derive(FromArgs)]
+/// Downloads every mod off nexus mods, parses CELL and WRLD data from plugins in each, and saves the data to the database.
+struct Args {
+    #[argh(option, short = 'p', default = "1")]
+    /// the page number to start scraping for mods on nexus mods.
+    page: usize,
+}
 
 fn get_local_form_id_and_master<'a>(
     form_id: u32,
@@ -216,7 +225,8 @@ pub async fn main() -> Result<()> {
     let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
     let client = reqwest::Client::new();
 
-    let mut page: i32 = 1;
+    let args: Args = argh::from_env();
+    let mut page = args.page;
     let mut has_next_page = true;
 
     while has_next_page {
@@ -294,9 +304,11 @@ pub async fn main() -> Result<()> {
                 )
                 .await?;
 
+                let mut checked_metadata = false;
                 match nexus_api::metadata::contains_plugin(&client, &api_file).await {
                     Ok(contains_plugin) => {
                         if let Some(contains_plugin) = contains_plugin {
+                            checked_metadata = true;
                             if !contains_plugin {
                                 info!("file metadata does not contain a plugin, skip downloading");
                                 continue;
@@ -392,6 +404,14 @@ pub async fn main() -> Result<()> {
                                     }
                                 }
                             }
+                        } else {
+                            if !checked_metadata {
+                                warn!("failed to read archive and server has no metadata, skipping file");
+                                continue;
+                            } else {
+                                error!("failed to read archive, but server had metadata");
+                                panic!("failed to read archive, but server had metadata");
+                            }
                         }
                         info!(
                             num_plugin_files = plugin_file_paths.len(),
@@ -433,7 +453,19 @@ pub async fn main() -> Result<()> {
                         let mut file = tokio_file.try_clone().await?.into_std().await;
                         let mut plugin_file_paths = Vec::new();
 
-                        for file_path in list_archive_files(&file)? {
+                        let archive_files = match list_archive_files(&file) {
+                            Ok(files) => Ok(files),
+                            Err(err) => {
+                                if !checked_metadata {
+                                    warn!(error = %err, "failed to read archive and server has no metadata, skipping file");
+                                    continue;
+                                } else {
+                                    error!(error = %err, "failed to read archive, but server had metadata");
+                                    Err(err)
+                                }
+                            }
+                        }?;
+                        for file_path in archive_files {
                             if file_path.ends_with(".esp")
                                 || file_path.ends_with(".esm")
                                 || file_path.ends_with(".esl")
