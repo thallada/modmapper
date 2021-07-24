@@ -5,6 +5,7 @@ use dotenv::dotenv;
 use reqwest::StatusCode;
 use skyrim_cell_dump::parse_plugin;
 use sqlx::postgres::PgPoolOptions;
+use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::env;
 use std::fs::OpenOptions;
@@ -86,6 +87,9 @@ where
                 .file_name()
                 .expect("plugin path ends in a valid file_name")
                 .to_string_lossy();
+            let author = plugin.header.author.as_deref();
+            let description = plugin.header.description.as_deref();
+            let masters: Vec<&str> = plugin.header.masters.iter().map(|s| s.borrow()).collect();
             let plugin_row = plugin::insert(
                 &pool,
                 &db_file.name,
@@ -93,14 +97,9 @@ where
                 db_file.id,
                 plugin.header.version as f64,
                 plugin_buf.len() as i64,
-                plugin.header.author,
-                plugin.header.description,
-                &plugin
-                    .header
-                    .masters
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<String>>(),
+                author,
+                description,
+                &masters,
                 &file_name,
                 file_path,
             )
@@ -110,12 +109,9 @@ where
                 .worlds
                 .iter()
                 .map(|world| {
-                    let (form_id, master) = get_local_form_id_and_master(
-                        world.form_id,
-                        &plugin.header.masters,
-                        &file_name,
-                    )
-                    .expect("form_id to be a valid i32");
+                    let (form_id, master) =
+                        get_local_form_id_and_master(world.form_id, &masters, &file_name)
+                            .expect("form_id to be a valid i32");
                     UnsavedWorld { form_id, master }
                 })
                 .collect();
@@ -136,12 +132,9 @@ where
                 .iter()
                 .map(|cell| {
                     let world_id = if let Some(world_form_id) = cell.world_form_id {
-                        let (form_id, master) = get_local_form_id_and_master(
-                            world_form_id,
-                            &plugin.header.masters,
-                            &file_name,
-                        )
-                        .expect("form_id to be valid i32");
+                        let (form_id, master) =
+                            get_local_form_id_and_master(world_form_id, &masters, &file_name)
+                                .expect("form_id to be valid i32");
                         Some(
                             db_worlds
                                 .iter()
@@ -152,12 +145,9 @@ where
                     } else {
                         None
                     };
-                    let (form_id, master) = get_local_form_id_and_master(
-                        cell.form_id,
-                        &plugin.header.masters,
-                        &file_name,
-                    )
-                    .expect("form_id is a valid i32");
+                    let (form_id, master) =
+                        get_local_form_id_and_master(cell.form_id, &masters, &file_name)
+                            .expect("form_id is a valid i32");
                     UnsavedCell {
                         form_id,
                         master,
