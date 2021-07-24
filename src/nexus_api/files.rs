@@ -3,7 +3,8 @@ use chrono::NaiveDateTime;
 use reqwest::Client;
 use serde_json::Value;
 use std::{env, time::Duration};
-use tracing::{info, instrument};
+use tokio::time::sleep;
+use tracing::{info, instrument, warn};
 
 use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
 
@@ -26,23 +27,34 @@ pub struct ApiFile<'a> {
 
 #[instrument(skip(client))]
 pub async fn get(client: &Client, nexus_mod_id: i32) -> Result<FilesResponse> {
-    let res = client
-        .get(format!(
-            "https://api.nexusmods.com/v1/games/{}/mods/{}/files.json",
-            GAME_NAME, nexus_mod_id
-        ))
-        .header("accept", "application/json")
-        .header("apikey", env::var("NEXUS_API_KEY")?)
-        .header("user-agent", USER_AGENT)
-        .send()
-        .await?
-        .error_for_status()?;
+    for attempt in 1..=3 {
+        let res = match client
+            .get(format!(
+                "https://api.nexusmods.com/v1/games/{}/mods/{}/files.json",
+                GAME_NAME, nexus_mod_id
+            ))
+            .header("accept", "application/json")
+            .header("apikey", env::var("NEXUS_API_KEY")?)
+            .header("user-agent", USER_AGENT)
+            .send()
+            .await?
+            .error_for_status()
+        {
+            Ok(res) => res,
+            Err(err) => {
+                warn!(error = %err, attempt, "Failed to get files for mod, trying again after 1 second");
+                sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
 
-    info!(status = %res.status(), "fetched files for mod from API");
-    let wait = rate_limit_wait_duration(&res)?;
-    let json = res.json::<Value>().await?;
+        info!(status = %res.status(), "fetched files for mod from API");
+        let wait = rate_limit_wait_duration(&res)?;
+        let json = res.json::<Value>().await?;
 
-    Ok(FilesResponse { wait, json })
+        return Ok(FilesResponse { wait, json });
+    }
+    Err(anyhow!("Failed to get files for mod in three attempts"))
 }
 
 impl FilesResponse {

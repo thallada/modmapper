@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::{env, time::Duration};
 use tempfile::tempfile;
 use tokio::fs::File;
+use tokio::time::sleep;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{info, instrument, warn};
 
@@ -17,23 +18,36 @@ pub struct DownloadLinkResponse {
 
 #[instrument(skip(client))]
 pub async fn get(client: &Client, mod_id: i32, file_id: i64) -> Result<DownloadLinkResponse> {
-    let res = client
-        .get(format!(
-            "https://api.nexusmods.com/v1/games/{}/mods/{}/files/{}/download_link.json",
-            GAME_NAME, mod_id, file_id
-        ))
-        .header("accept", "application/json")
-        .header("apikey", env::var("NEXUS_API_KEY")?)
-        .header("user-agent", USER_AGENT)
-        .send()
-        .await?
-        .error_for_status()?;
+    for attempt in 1..=3 {
+        let res = match client
+            .get(format!(
+                "https://api.nexusmods.com/v1/games/{}/mods/{}/files/{}/download_link.json",
+                GAME_NAME, mod_id, file_id
+            ))
+            .header("accept", "application/json")
+            .header("apikey", env::var("NEXUS_API_KEY")?)
+            .header("user-agent", USER_AGENT)
+            .send()
+            .await?
+            .error_for_status()
+        {
+            Ok(res) => res,
+            Err(err) => {
+                warn!(error = %err, attempt, "Failed to get download link for file, trying again after 1 second");
+                sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
 
-    info!(status = %res.status(), "fetched file download link from API");
-    let wait = rate_limit_wait_duration(&res)?;
-    let json = res.json::<Value>().await?;
+        info!(status = %res.status(), "fetched file download link from API");
+        let wait = rate_limit_wait_duration(&res)?;
+        let json = res.json::<Value>().await?;
 
-    Ok(DownloadLinkResponse { wait, json })
+        return Ok(DownloadLinkResponse { wait, json });
+    }
+    Err(anyhow!(
+        "Failed to get download link for file in three attempts"
+    ))
 }
 
 impl DownloadLinkResponse {
@@ -76,7 +90,8 @@ impl DownloadLinkResponse {
                     return Ok(tokio_file);
                 }
                 Err(err) => {
-                    warn!(error = %err, attempt, "Failed to download file, trying again");
+                    warn!(error = %err, attempt, "Failed to download file, trying again after 1 second");
+                    sleep(std::time::Duration::from_secs(1)).await;
                 }
             }
         }
