@@ -304,26 +304,13 @@ pub async fn main() -> Result<()> {
                                 continue;
                             }
                         } else {
-                            warn!("file has no metadata link");
+                            warn!("file has no metadata link, continuing with download");
                         }
-                        Ok(())
                     }
                     Err(err) => {
-                        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
-                            if reqwest_err.status() == Some(StatusCode::NOT_FOUND) {
-                                warn!(
-                                    status = ?reqwest_err.status(),
-                                    "metadata for file not found on server"
-                                );
-                                Ok(())
-                            } else {
-                                Err(err)
-                            }
-                        } else {
-                            Err(err)
-                        }
+                        warn!(error = %err, "error retreiving metadata for file, continuing with download");
                     }
-                }?;
+                };
 
                 let download_link_resp =
                     nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)
