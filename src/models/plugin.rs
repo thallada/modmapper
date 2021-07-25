@@ -54,6 +54,7 @@ pub async fn insert(
     .bind(description)
     .bind(masters)
     .bind(file_name)
+    .bind(file_path)
     .fetch_one(pool)
     .await
     .context("Failed to insert plugin")
