@@ -91,14 +91,3 @@ pub async fn update_has_download_link(
     .await
     .context("Failed to update file")
 }
-
-#[instrument(level = "debug", skip(pool))]
-pub async fn get_files_that_need_backfill(pool: &sqlx::Pool<sqlx::Postgres>) -> Result<Vec<File>> {
-    sqlx::query_as!(
-        File,
-        "SELECT * FROM files WHERE created_at >= '2021-07-24 02:07:25' and file_name like '%.rar'",
-    )
-    .fetch_all(pool)
-    .await
-    .context("Failed to get files")
-}
