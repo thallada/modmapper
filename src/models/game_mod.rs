@@ -136,3 +136,11 @@ pub async fn batched_insert<'a>(
     }
     Ok(saved_mods)
 }
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn get(pool: &sqlx::Pool<sqlx::Postgres>, id: i32) -> Result<Option<Mod>> {
+    sqlx::query_as!(Mod, "SELECT * FROM mods WHERE id = $1", id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get mod")
+}
