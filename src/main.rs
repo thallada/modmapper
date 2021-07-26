@@ -8,18 +8,18 @@ use sqlx::postgres::PgPoolOptions;
 use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::env;
-use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use tempfile::tempdir;
+use tokio::fs::create_dir_all;
+use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
 use tracing::{debug, error, info, info_span, warn};
 use unrar::Archive;
-use zip::write::{FileOptions, ZipWriter};
 
 mod models;
 mod nexus_api;
@@ -59,17 +59,13 @@ fn get_local_form_id_and_master<'a>(
     Ok((local_form_id, masters[master_index]))
 }
 
-async fn process_plugin<W>(
+async fn process_plugin(
     plugin_buf: &mut [u8],
     pool: &sqlx::Pool<sqlx::Postgres>,
-    plugin_archive: &mut ZipWriter<W>,
     db_file: &File,
-    mod_obj: &Mod,
+    db_mod: &Mod,
     file_path: &str,
-) -> Result<()>
-where
-    W: std::io::Write + std::io::Seek,
-{
+) -> Result<()> {
     if plugin_buf.len() == 0 {
         warn!("skipping processing of invalid empty plugin");
         return Ok(());
@@ -174,31 +170,19 @@ where
             warn!(error = %err, "Failed to parse plugin, skipping plugin");
         }
     }
-    plugin_archive.start_file(
-        format!(
-            "{}/{}/{}/{}",
-            GAME_NAME, mod_obj.nexus_mod_id, db_file.nexus_file_id, file_path
-        ),
-        FileOptions::default(),
-    )?;
 
-    let mut reader = std::io::Cursor::new(&plugin_buf);
-    std::io::copy(&mut reader, plugin_archive)?;
-    Ok(())
-}
-
-fn initialize_plugins_archive(mod_id: i32, file_id: i32) -> Result<()> {
-    let mut plugins_archive = ZipWriter::new(
-        OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open("plugins.zip")?,
+    let plugin_path = format!(
+        "plugins/{}/{}/{}/{}",
+        GAME_NAME, db_mod.nexus_mod_id, db_file.nexus_file_id, file_path
     );
-    plugins_archive.add_directory(
-        format!("{}/{}/{}", GAME_NAME, mod_id, file_id),
-        FileOptions::default(),
-    )?;
-    plugins_archive.finish()?;
+    let plugin_path = Path::new(&plugin_path);
+    if let Some(dir) = plugin_path.parent() {
+        create_dir_all(dir).await?;
+    }
+    let mut file = tokio::fs::File::create(plugin_path).await?;
+
+    info!(path = %plugin_path.display(), "saving plugin to disk");
+    file.write_all(&plugin_buf).await?;
     Ok(())
 }
 
@@ -331,13 +315,11 @@ pub async fn main() -> Result<()> {
                 let mut tokio_file = download_link_resp.download_file(&client).await?;
                 info!(bytes = api_file.size, "download finished");
 
-                initialize_plugins_archive(db_mod.nexus_mod_id, db_file.nexus_file_id)?;
-                let mut plugins_archive = ZipWriter::new_append(
-                    OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open("plugins.zip")?,
-                )?;
+                create_dir_all(format!(
+                    "plugins/{}/{}/{}",
+                    GAME_NAME, db_mod.nexus_mod_id, db_file.nexus_file_id
+                ))
+                .await?;
 
                 let mut initial_bytes = [0; 8];
                 tokio_file.seek(SeekFrom::Start(0)).await?;
@@ -417,7 +399,6 @@ pub async fn main() -> Result<()> {
                                 process_plugin(
                                     &mut plugin_buf,
                                     &pool,
-                                    &mut plugins_archive,
                                     &db_file,
                                     &db_mod,
                                     &file_path.to_string_lossy(),
@@ -498,7 +479,6 @@ pub async fn main() -> Result<()> {
                                             process_plugin(
                                                 &mut plugin_buf,
                                                 &pool,
-                                                &mut plugins_archive,
                                                 &db_file,
                                                 &db_mod,
                                                 file_path,
@@ -511,20 +491,11 @@ pub async fn main() -> Result<()> {
                                     Err(err)
                                 }
                             }?;
-                            process_plugin(
-                                &mut buf,
-                                &pool,
-                                &mut plugins_archive,
-                                &db_file,
-                                &db_mod,
-                                file_path,
-                            )
-                            .await?;
+                            process_plugin(&mut buf, &pool, &db_file, &db_mod, file_path).await?;
                         }
                     }
                 }
 
-                plugins_archive.finish()?;
                 debug!(duration = ?download_link_resp.wait, "sleeping");
                 sleep(download_link_resp.wait).await;
             }

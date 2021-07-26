@@ -5,11 +5,10 @@ use serde_json::Value;
 use std::{env, time::Duration};
 use tempfile::tempfile;
 use tokio::fs::File;
-use tokio::time::sleep;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
 
-use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
+use super::{rate_limit_wait_duration, warn_and_sleep, GAME_NAME, USER_AGENT};
 
 pub struct DownloadLinkResponse {
     pub wait: Duration,
@@ -28,13 +27,17 @@ pub async fn get(client: &Client, mod_id: i32, file_id: i64) -> Result<DownloadL
             .header("apikey", env::var("NEXUS_API_KEY")?)
             .header("user-agent", USER_AGENT)
             .send()
-            .await?
-            .error_for_status()
+            .await
         {
-            Ok(res) => res,
+            Ok(res) => match res.error_for_status() {
+                Ok(res) => res,
+                Err(err) => {
+                    warn_and_sleep("download_link::get", anyhow!(err), attempt).await;
+                    continue;
+                }
+            },
             Err(err) => {
-                warn!(error = %err, attempt, "Failed to get download link for file, trying again after 1 second");
-                sleep(std::time::Duration::from_secs(1)).await;
+                warn_and_sleep("download_link::get", anyhow!(err), attempt).await;
                 continue;
             }
         };
@@ -69,13 +72,25 @@ impl DownloadLinkResponse {
     pub async fn download_file(&self, client: &Client) -> Result<File> {
         for attempt in 1..=3 {
             let mut tokio_file = File::from_std(tempfile()?);
-            let res = client
+            let res = match client
                 .get(self.link()?)
                 .header("apikey", env::var("NEXUS_API_KEY")?)
                 .header("user-agent", USER_AGENT)
                 .send()
-                .await?
-                .error_for_status()?;
+                .await
+            {
+                Ok(res) => match res.error_for_status() {
+                    Ok(res) => res,
+                    Err(err) => {
+                        warn_and_sleep("download_link::download_file", anyhow!(err), attempt).await;
+                        continue;
+                    }
+                },
+                Err(err) => {
+                    warn_and_sleep("download_link::download_file", anyhow!(err), attempt).await;
+                    continue;
+                }
+            };
             info!(status = %res.status(), "downloading file from nexus");
 
             // See: https://github.com/benkay86/async-applied/blob/master/reqwest-tokio-compat/src/main.rs
@@ -90,8 +105,7 @@ impl DownloadLinkResponse {
                     return Ok(tokio_file);
                 }
                 Err(err) => {
-                    warn!(error = %err, attempt, "Failed to download file, trying again after 1 second");
-                    sleep(std::time::Duration::from_secs(1)).await;
+                    warn_and_sleep("download_link::download_file", anyhow!(err), attempt).await
                 }
             }
         }

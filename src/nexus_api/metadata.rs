@@ -2,11 +2,10 @@ use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
-use tokio::time::sleep;
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
 
 use super::files::ApiFile;
-use super::USER_AGENT;
+use super::{warn_and_sleep, USER_AGENT};
 
 fn has_plugin(json: &Value) -> Result<bool> {
     let node_type = json
@@ -53,13 +52,17 @@ pub async fn contains_plugin(client: &Client, api_file: &ApiFile<'_>) -> Result<
                 .header("apikey", env::var("NEXUS_API_KEY")?)
                 .header("user-agent", USER_AGENT)
                 .send()
-                .await?
-                .error_for_status()
+                .await
             {
-                Ok(res) => res,
+                Ok(res) => match res.error_for_status() {
+                    Ok(res) => res,
+                    Err(err) => {
+                        warn_and_sleep("metadata::contains_plugin", anyhow!(err), attempt).await;
+                        continue;
+                    }
+                },
                 Err(err) => {
-                    warn!(error = %err, attempt, "Failed to get metadata for file, trying again after 1 second");
-                    sleep(std::time::Duration::from_secs(1)).await;
+                    warn_and_sleep("metadata::contains_plugin", anyhow!(err), attempt).await;
                     continue;
                 }
             };

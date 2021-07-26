@@ -3,10 +3,9 @@ use chrono::NaiveDateTime;
 use reqwest::Client;
 use serde_json::Value;
 use std::{env, time::Duration};
-use tokio::time::sleep;
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
 
-use super::{rate_limit_wait_duration, GAME_NAME, USER_AGENT};
+use super::{rate_limit_wait_duration, warn_and_sleep, GAME_NAME, USER_AGENT};
 
 pub struct FilesResponse {
     pub wait: Duration,
@@ -37,13 +36,17 @@ pub async fn get(client: &Client, nexus_mod_id: i32) -> Result<FilesResponse> {
             .header("apikey", env::var("NEXUS_API_KEY")?)
             .header("user-agent", USER_AGENT)
             .send()
-            .await?
-            .error_for_status()
+            .await
         {
-            Ok(res) => res,
+            Ok(res) => match res.error_for_status() {
+                Ok(res) => res,
+                Err(err) => {
+                    warn_and_sleep("files::get", anyhow!(err), attempt).await;
+                    continue;
+                }
+            },
             Err(err) => {
-                warn!(error = %err, attempt, "Failed to get files for mod, trying again after 1 second");
-                sleep(std::time::Duration::from_secs(1)).await;
+                warn_and_sleep("files::get", anyhow!(err), attempt).await;
                 continue;
             }
         };

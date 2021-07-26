@@ -3,7 +3,8 @@ use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
 use reqwest::Response;
-use tracing::info;
+use tokio::time::sleep;
+use tracing::{info, warn};
 
 pub mod download_link;
 pub mod files;
@@ -50,4 +51,9 @@ pub fn rate_limit_wait_duration(res: &Response) -> Result<std::time::Duration> {
     } else {
         Ok(std::time::Duration::from_secs(1))
     }
+}
+
+async fn warn_and_sleep(request_name: &str, err: anyhow::Error, attempt: i32) {
+    warn!(error = %err, attempt, "{} request failed, trying again after 1 second", request_name);
+    sleep(std::time::Duration::from_secs(1)).await;
 }
