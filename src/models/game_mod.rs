@@ -17,6 +17,7 @@ pub struct Mod {
     pub game_id: i32,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    pub last_updated_files_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug)]
@@ -45,18 +46,20 @@ pub async fn get_by_nexus_mod_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn bulk_get_present_nexus_mod_ids(
+pub async fn bulk_get_fully_processed_nexus_mod_ids(
     pool: &sqlx::Pool<sqlx::Postgres>,
     nexus_mod_ids: &[i32],
 ) -> Result<Vec<i32>> {
     sqlx::query!(
-        "SELECT nexus_mod_id FROM mods WHERE nexus_mod_id = ANY($1::int[])",
+        "SELECT nexus_mod_id FROM mods
+            WHERE nexus_mod_id = ANY($1::int[])
+            AND last_updated_files_at IS NOT NULL",
         nexus_mod_ids,
     )
     .map(|row| row.nexus_mod_id)
     .fetch_all(pool)
     .await
-    .context("Failed to get mods")
+    .context("Failed to get fully processed , last_updated_files_at: () mods")
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -143,4 +146,22 @@ pub async fn get(pool: &sqlx::Pool<sqlx::Postgres>, id: i32) -> Result<Option<Mo
         .fetch_optional(pool)
         .await
         .context("Failed to get mod")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn update_last_updated_files_at(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    id: i32,
+) -> Result<Mod> {
+    sqlx::query_as!(
+        Mod,
+        "UPDATE mods
+            SET last_updated_files_at = now()
+            WHERE id = $1
+            RETURNING *",
+        id,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to update mod")
 }

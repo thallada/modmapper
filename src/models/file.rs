@@ -37,6 +37,18 @@ pub async fn get_by_nexus_file_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
+pub async fn get_nexus_file_ids_by_mod_id(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    mod_id: i32,
+) -> Result<Vec<i32>> {
+    sqlx::query!("SELECT nexus_file_id FROM files WHERE mod_id = $1", mod_id)
+        .map(|row| row.nexus_file_id)
+        .fetch_all(pool)
+        .await
+        .context("Failed to get files")
+}
+
+#[instrument(level = "debug", skip(pool))]
 pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     name: &str,

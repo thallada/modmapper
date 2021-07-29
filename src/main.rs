@@ -6,6 +6,7 @@ use reqwest::StatusCode;
 use skyrim_cell_dump::parse_plugin;
 use sqlx::postgres::PgPoolOptions;
 use std::borrow::Borrow;
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::env;
 use std::io::Seek;
@@ -210,7 +211,7 @@ pub async fn main() -> Result<()> {
         let scraped = mod_list_resp.scrape_mods()?;
 
         has_next_page = scraped.has_next_page;
-        let present_mods = game_mod::bulk_get_present_nexus_mod_ids(
+        let processed_mods = game_mod::bulk_get_fully_processed_nexus_mod_ids(
             &pool,
             &scraped
                 .mods
@@ -222,7 +223,7 @@ pub async fn main() -> Result<()> {
         let mods_to_create: Vec<UnsavedMod> = scraped
             .mods
             .iter()
-            .filter(|scraped_mod| !present_mods.contains(&scraped_mod.nexus_mod_id))
+            .filter(|scraped_mod| !processed_mods.contains(&scraped_mod.nexus_mod_id))
             .map(|scraped_mod| UnsavedMod {
                 name: scraped_mod.name,
                 nexus_mod_id: scraped_mod.nexus_mod_id,
@@ -260,10 +261,21 @@ pub async fn main() -> Result<()> {
                     Some(_) => true,
                 });
 
+            let present_file_ids: HashSet<i32> =
+                file::get_nexus_file_ids_by_mod_id(&pool, db_mod.id)
+                    .await?
+                    .into_iter()
+                    .collect();
+
             for api_file in files {
                 let file_span =
                     info_span!("file", name = &api_file.file_name, id = &api_file.file_id);
                 let _file_span = file_span.enter();
+
+                if present_file_ids.contains(&(api_file.file_id as i32)) {
+                    info!("skipping file already present in database");
+                    continue;
+                }
                 let db_file = file::insert(
                     &pool,
                     api_file.name,
@@ -503,6 +515,8 @@ pub async fn main() -> Result<()> {
                 debug!(duration = ?download_link_resp.wait, "sleeping");
                 sleep(download_link_resp.wait).await;
             }
+
+            game_mod::update_last_updated_files_at(&pool, db_mod.id).await?;
         }
 
         page += 1;
