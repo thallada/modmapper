@@ -18,6 +18,7 @@ pub struct File {
     pub has_download_link: bool,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    pub downloaded_at: Option<NaiveDateTime>,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -86,6 +87,21 @@ pub async fn update_has_download_link(
             RETURNING *",
         id,
         has_download_link,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to update file")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn update_downloaded_at(pool: &sqlx::Pool<sqlx::Postgres>, id: i32) -> Result<File> {
+    sqlx::query_as!(
+        File,
+        "UPDATE files
+            SET downloaded_at = now()
+            WHERE id = $1
+            RETURNING *",
+        id,
     )
     .fetch_one(pool)
     .await

@@ -304,7 +304,7 @@ pub async fn main() -> Result<()> {
                         if reqwest_err.status() == Some(StatusCode::NOT_FOUND) {
                             warn!(
                                 status = ?reqwest_err.status(),
-                                "failed to get download link for file"
+                                "failed to get download link for file, skipping file"
                             );
                             file::update_has_download_link(&pool, db_file.id, false).await?;
                             continue;
@@ -312,14 +312,18 @@ pub async fn main() -> Result<()> {
                     }
                 }
                 let download_link_resp = download_link_resp?;
-                let mut tokio_file = download_link_resp.download_file(&client).await?;
-                info!(bytes = api_file.size, "download finished");
 
-                create_dir_all(format!(
-                    "plugins/{}/{}/{}",
-                    GAME_NAME, db_mod.nexus_mod_id, db_file.nexus_file_id
-                ))
-                .await?;
+                let mut tokio_file = match download_link_resp.download_file(&client).await {
+                    Ok(file) => {
+                        info!(bytes = api_file.size, "download finished");
+                        file::update_downloaded_at(&pool, db_file.id).await?;
+                        file
+                    }
+                    Err(err) => {
+                        warn!(error = %err, "failed all attempts at downloading file, skipping file");
+                        continue;
+                    }
+                };
 
                 let mut initial_bytes = [0; 8];
                 tokio_file.seek(SeekFrom::Start(0)).await?;
