@@ -163,7 +163,7 @@ pub async fn update_unable_to_extract_plugins(
             WHERE id = $1
             RETURNING *",
         id,
-        update_unable_to_extract_plugins,
+        unable_to_extract_plugins,
     )
     .fetch_one(pool)
     .await
