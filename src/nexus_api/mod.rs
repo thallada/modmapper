@@ -35,7 +35,7 @@ pub fn rate_limit_wait_duration(res: &Response) -> Result<std::time::Duration> {
         .expect("hourly reset in response headers");
     info!(daily_remaining, hourly_remaining, "rate limit check");
 
-    if daily_remaining == 0 && hourly_remaining == 0 {
+    if daily_remaining <= 1 && hourly_remaining <= 1 {
         let hourly_reset = hourly_reset.to_str()?.trim();
         let hourly_reset: DateTime<Utc> =
             (DateTime::parse_from_str(hourly_reset, "%Y-%m-%d %H:%M:%S %z")?

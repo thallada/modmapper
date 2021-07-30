@@ -1,0 +1,1 @@
+ALTER TABLE "files" ADD COLUMN "unable_to_extract_plugins" BOOLEAN NOT NULL DEFAULT false;

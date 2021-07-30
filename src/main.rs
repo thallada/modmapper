@@ -261,8 +261,8 @@ pub async fn main() -> Result<()> {
                     Some(_) => true,
                 });
 
-            let present_file_ids: HashSet<i32> =
-                file::get_nexus_file_ids_by_mod_id(&pool, db_mod.id)
+            let processed_file_ids: HashSet<i32> =
+                file::get_processed_nexus_file_ids_by_mod_id(&pool, db_mod.id)
                     .await?
                     .into_iter()
                     .collect();
@@ -272,8 +272,8 @@ pub async fn main() -> Result<()> {
                     info_span!("file", name = &api_file.file_name, id = &api_file.file_id);
                 let _file_span = file_span.enter();
 
-                if present_file_ids.contains(&(api_file.file_id as i32)) {
-                    info!("skipping file already present in database");
+                if processed_file_ids.contains(&(api_file.file_id as i32)) {
+                    info!("skipping file already present and processed in database");
                     continue;
                 }
                 let db_file = file::insert(
@@ -297,6 +297,7 @@ pub async fn main() -> Result<()> {
                             checked_metadata = true;
                             if !contains_plugin {
                                 info!("file metadata does not contain a plugin, skip downloading");
+                                file::update_has_plugin(&pool, db_file.id, false).await?;
                                 continue;
                             }
                         } else {
@@ -342,6 +343,7 @@ pub async fn main() -> Result<()> {
                 match tokio_file.read_exact(&mut initial_bytes).await {
                     Err(err) => {
                         warn!(error = %err, "failed to read initial bytes, skipping file");
+                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
                         continue;
                     }
                     _ => {}
@@ -384,6 +386,8 @@ pub async fn main() -> Result<()> {
                         } else {
                             if !checked_metadata {
                                 warn!("failed to read archive and server has no metadata, skipping file");
+                                file::update_unable_to_extract_plugins(&pool, db_file.id, true)
+                                    .await?;
                                 continue;
                             } else {
                                 error!("failed to read archive, but server had metadata");
@@ -434,6 +438,8 @@ pub async fn main() -> Result<()> {
                             Err(err) => {
                                 if !checked_metadata {
                                     warn!(error = %err, "failed to read archive and server has no metadata, skipping file");
+                                    file::update_unable_to_extract_plugins(&pool, db_file.id, true)
+                                        .await?;
                                     continue;
                                 } else {
                                     error!(error = %err, "failed to read archive, but server had metadata");

@@ -19,6 +19,8 @@ pub struct File {
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
     pub downloaded_at: Option<NaiveDateTime>,
+    pub has_plugin: bool,
+    pub unable_to_extract_plugins: bool,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -37,15 +39,23 @@ pub async fn get_by_nexus_file_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn get_nexus_file_ids_by_mod_id(
+pub async fn get_processed_nexus_file_ids_by_mod_id(
     pool: &sqlx::Pool<sqlx::Postgres>,
     mod_id: i32,
 ) -> Result<Vec<i32>> {
-    sqlx::query!("SELECT nexus_file_id FROM files WHERE mod_id = $1", mod_id)
-        .map(|row| row.nexus_file_id)
-        .fetch_all(pool)
-        .await
-        .context("Failed to get files")
+    sqlx::query!(
+        "SELECT nexus_file_id FROM files
+            WHERE mod_id = $1 AND (
+                downloaded_at IS NOT NULL OR
+                has_plugin = false OR
+                has_download_link = false
+            )",
+        mod_id
+    )
+    .map(|row| row.nexus_file_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get files")
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -114,6 +124,46 @@ pub async fn update_downloaded_at(pool: &sqlx::Pool<sqlx::Postgres>, id: i32) ->
             WHERE id = $1
             RETURNING *",
         id,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to update file")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn update_has_plugin(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    id: i32,
+    has_plugin: bool,
+) -> Result<File> {
+    sqlx::query_as!(
+        File,
+        "UPDATE files
+            SET has_plugin = $2
+            WHERE id = $1
+            RETURNING *",
+        id,
+        has_plugin,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to update file")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn update_unable_to_extract_plugins(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    id: i32,
+    unable_to_extract_plugins: bool,
+) -> Result<File> {
+    sqlx::query_as!(
+        File,
+        "UPDATE files
+            SET unable_to_extract_plugins = $2
+            WHERE id = $1
+            RETURNING *",
+        id,
+        update_unable_to_extract_plugins,
     )
     .fetch_one(pool)
     .await
