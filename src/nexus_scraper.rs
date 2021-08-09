@@ -11,7 +11,7 @@ pub struct ModListResponse {
 pub struct ScrapedMod<'a> {
     pub nexus_mod_id: i32,
     pub name: &'a str,
-    pub category: &'a str,
+    pub category: Option<&'a str>,
     pub author: &'a str,
     pub desc: Option<&'a str>,
 }
@@ -89,8 +89,7 @@ impl ModListResponse {
                     .expect("Missing category link for mod");
                 let category = category_elem
                     .text()
-                    .next()
-                    .expect("Missing category text for mod");
+                    .next();
                 let author_elem = right
                     .select(&author_select)
                     .next()

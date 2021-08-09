@@ -12,7 +12,7 @@ pub struct Mod {
     pub name: String,
     pub nexus_mod_id: i32,
     pub author: String,
-    pub category: String,
+    pub category: Option<String>,
     pub description: Option<String>,
     pub game_id: i32,
     pub updated_at: NaiveDateTime,
@@ -25,7 +25,7 @@ pub struct UnsavedMod<'a> {
     pub name: &'a str,
     pub nexus_mod_id: i32,
     pub author: &'a str,
-    pub category: &'a str,
+    pub category: Option<&'a str>,
     pub description: Option<&'a str>,
     pub game_id: i32,
 }
@@ -68,7 +68,7 @@ pub async fn insert(
     name: &str,
     nexus_mod_id: i32,
     author: &str,
-    category: &str,
+    category: Option<&str>,
     description: Option<&str>,
     game_id: i32,
 ) -> Result<Mod> {
@@ -103,7 +103,7 @@ pub async fn batched_insert<'a>(
         let mut names: Vec<&str> = vec![];
         let mut nexus_mod_ids: Vec<i32> = vec![];
         let mut authors: Vec<&str> = vec![];
-        let mut categories: Vec<&str> = vec![];
+        let mut categories: Vec<Option<&str>> = vec![];
         let mut descriptions: Vec<Option<&str>> = vec![];
         let mut game_ids: Vec<i32> = vec![];
         batch.into_iter().for_each(|unsaved_mod| {
