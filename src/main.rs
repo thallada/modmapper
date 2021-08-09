@@ -153,10 +153,23 @@ async fn extract_with_unrar(
         info!("uncompressing downloaded archive");
         let extract = Archive::new(&temp_file_path.to_string_lossy().to_string())?
             .extract_to(temp_dir.path().to_string_lossy().to_string());
-        extract
-            .expect("failed to extract")
-            .process()
-            .expect("failed to extract");
+
+        let mut extract = match extract {
+            Err(err) => {
+                warn!(error = %err, "failed to extract with unrar");
+                file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                return Ok(())
+            }
+            Ok(extract) => extract
+        };
+        match extract.process() {
+            Err(err) => {
+                warn!(error = %err, "failed to extract with unrar");
+                file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                return Ok(())
+            }
+            _ => {}
+        }
 
         for file_path in plugin_file_paths.iter() {
             info!(

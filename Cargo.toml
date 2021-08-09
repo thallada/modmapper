@@ -11,8 +11,7 @@ description = "Saves Skyrim mod cell edits to a database"
 anyhow = "1.0"
 argh = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-# Need specific branch to fix my issue with bad-encoding in some archive file names: https://github.com/OSSystems/compress-tools-rs/issues/59
-compress-tools = { git = "https://github.com/OSSystems/compress-tools-rs.git", branch = "issue-59" }
+compress-tools = "0.12"
 dotenv = "0.15"
 futures = "0.3"
 infer = { version = "0.4", default-features = false }
