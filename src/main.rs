@@ -1,6 +1,7 @@
 use anyhow::Result;
 use argh::FromArgs;
 use dotenv::dotenv;
+use humansize::{FileSize, file_size_opts};
 use models::file::File;
 use models::game_mod::Mod;
 use reqwest::StatusCode;
@@ -275,7 +276,7 @@ pub async fn main() -> Result<()> {
 
             for api_file in files {
                 let file_span =
-                    info_span!("file", name = &api_file.file_name, id = &api_file.file_id);
+                    info_span!("file", name = &api_file.file_name, id = &api_file.file_id,);
                 let _file_span = file_span.enter();
 
                 if processed_file_ids.contains(&(api_file.file_id as i32)) {
@@ -315,6 +316,9 @@ pub async fn main() -> Result<()> {
                     }
                 };
 
+                let humanized_size = api_file.size.file_size(file_size_opts::CONVENTIONAL)
+                    .expect("unable to create human-readable file size");
+                info!(size = %humanized_size, "decided to download file");
                 let download_link_resp =
                     nexus_api::download_link::get(&client, db_mod.nexus_mod_id, api_file.file_id)
                         .await;
