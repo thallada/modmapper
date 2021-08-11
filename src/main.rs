@@ -385,9 +385,9 @@ pub async fn main() -> Result<()> {
                                 if err
                                     .downcast_ref::<extractors::compress_tools::ExtractorError>()
                                     .is_some()
-                                    && kind.mime_type() == "application/zip"
+                                    && (kind.mime_type() == "application/zip" || kind.mime_type() == "application/x-7z-compressed")
                                 {
-                                    // compress_tools or libarchive failed to extract zip file (e.g. archive is deflate64 compressed)
+                                    // compress_tools or libarchive failed to extract zip/7z file (e.g. archive is deflate64 compressed)
                                     // Attempt to uncompress the archive using `7z` unix command instead
                                     warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with 7z instead");
                                     extract_with_7zip(&mut file, &pool, &db_file, &db_mod).await
