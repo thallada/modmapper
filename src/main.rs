@@ -358,7 +358,14 @@ pub async fn main() -> Result<()> {
                     }
                     _ => {}
                 }
-                let kind = infer::get(&initial_bytes).expect("unknown file type of file download");
+                let kind = match infer::get(&initial_bytes) {
+                    Some(kind) => kind,
+                    None => {
+                        warn!(initial_bytes = ?initial_bytes, "unable to determine file type of archive, skipping file");
+                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                        continue;
+                    },
+                };
                 info!(
                     mime_type = kind.mime_type(),
                     "inferred mime_type of downloaded archive"
