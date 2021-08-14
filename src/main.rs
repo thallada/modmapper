@@ -123,9 +123,9 @@ async fn extract_with_unrar(
 
     let mut plugin_file_paths = Vec::new();
     let list = Archive::new(&temp_file_path.to_string_lossy().to_string())?.list();
-    if let Ok(list) = list {
-        for entry in list {
-            if let Ok(entry) = entry {
+    match list {
+        Ok(list) => {
+            for entry in list.flatten() {
                 if let Some(extension) = entry.filename.extension() {
                     if entry.is_file()
                         && (extension == "esp" || extension == "esm" || extension == "esl")
@@ -135,14 +135,15 @@ async fn extract_with_unrar(
                 }
             }
         }
-    } else {
-        if !checked_metadata {
-            warn!("failed to read archive and server has no metadata, skipping file");
-            file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
-            return Ok(());
-        } else {
-            error!("failed to read archive, but server had metadata");
-            panic!("failed to read archive, but server had metadata");
+        Err(_) => {
+            if !checked_metadata {
+                warn!("failed to read archive and server has no metadata, skipping file");
+                file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                return Ok(());
+            } else {
+                error!("failed to read archive, but server had metadata");
+                panic!("failed to read archive, but server had metadata");
+            }
         }
     }
     info!(
@@ -150,7 +151,7 @@ async fn extract_with_unrar(
         "listed plugins in downloaded archive"
     );
 
-    if plugin_file_paths.len() > 0 {
+    if !plugin_file_paths.is_empty() {
         info!("uncompressing downloaded archive");
         let extract = Archive::new(&temp_file_path.to_string_lossy().to_string())?
             .extract_to(temp_dir.path().to_string_lossy().to_string());
@@ -163,13 +164,10 @@ async fn extract_with_unrar(
             }
             Ok(extract) => extract
         };
-        match extract.process() {
-            Err(err) => {
-                warn!(error = %err, "failed to extract with unrar");
-                file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
-                return Ok(())
-            }
-            _ => {}
+        if let Err(err) = extract.process() {
+            warn!(error = %err, "failed to extract with unrar");
+            file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+            return Ok(())
         }
 
         for file_path in plugin_file_paths.iter() {
@@ -285,15 +283,17 @@ pub async fn main() -> Result<()> {
                 }
                 let db_file = file::insert(
                     &pool,
-                    api_file.name,
-                    api_file.file_name,
-                    api_file.file_id as i32,
-                    db_mod.id,
-                    api_file.category,
-                    api_file.version,
-                    api_file.mod_version,
-                    api_file.size,
-                    api_file.uploaded_at,
+                    &file::UnsavedFile {
+                        name: api_file.name,
+                        file_name: api_file.file_name,
+                        nexus_file_id: api_file.file_id as i32,
+                        mod_id: db_mod.id,
+                        category: api_file.category,
+                        version: api_file.version,
+                        mod_version: api_file.mod_version,
+                        size: api_file.size,
+                        uploaded_at: api_file.uploaded_at,
+                    },
                 )
                 .await?;
 
@@ -350,13 +350,10 @@ pub async fn main() -> Result<()> {
 
                 let mut initial_bytes = [0; 8];
                 tokio_file.seek(SeekFrom::Start(0)).await?;
-                match tokio_file.read_exact(&mut initial_bytes).await {
-                    Err(err) => {
-                        warn!(error = %err, "failed to read initial bytes, skipping file");
-                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
-                        continue;
-                    }
-                    _ => {}
+                if let Err(err) = tokio_file.read_exact(&mut initial_bytes).await {
+                    warn!(error = %err, "failed to read initial bytes, skipping file");
+                    file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                    continue;
                 }
                 let kind = match infer::get(&initial_bytes) {
                     Some(kind) => kind,
@@ -378,8 +375,15 @@ pub async fn main() -> Result<()> {
                         // https://github.com/libarchive/libarchive/issues/373, https://github.com/libarchive/libarchive/issues/1426
                         tokio_file.seek(SeekFrom::Start(0)).await?;
                         let mut file = tokio_file.try_clone().await?.into_std().await;
-                        extract_with_unrar(&mut file, &pool, &db_file, &db_mod, checked_metadata)
-                            .await?;
+                        match extract_with_unrar(&mut file, &pool, &db_file, &db_mod, checked_metadata).await {
+                            Ok(_) => Ok(()),
+                            Err(err) => {
+                                // unrar failed to extract rar file (e.g. archive has unicode filenames)
+                                // Attempt to uncompress the archive using `7z` unix command instead
+                                warn!(error = %err, "failed to extract file with unrar, extracting whole archive with 7z instead");
+                                extract_with_7zip(&mut file, &pool, &db_file, &db_mod).await
+                            }
+                        }?;
                     }
                     _ => {
                         tokio_file.seek(SeekFrom::Start(0)).await?;

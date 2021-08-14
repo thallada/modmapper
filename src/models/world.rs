@@ -52,7 +52,7 @@ pub async fn batched_insert<'a>(
     for batch in worlds.chunks(BATCH_SIZE) {
         let mut form_ids: Vec<i32> = vec![];
         let mut masters: Vec<&str> = vec![];
-        batch.into_iter().for_each(|unsaved_world| {
+        batch.iter().for_each(|unsaved_world| {
             form_ids.push(unsaved_world.form_id);
             masters.push(unsaved_world.master);
         });

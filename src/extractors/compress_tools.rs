@@ -63,9 +63,8 @@ impl<'a> Iterator for Extractor<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.plugin_file_paths.is_none() {
-            match self.list_plugins() {
-                Err(err) => return Some(Err(err).context(ExtractorError)),
-                _ => {}
+            if let Err(err) = self.list_plugins() {
+                return Some(Err(err).context(ExtractorError));
             }
         }
         if let Some(plugin_file_paths) = &mut self.plugin_file_paths {

@@ -70,7 +70,7 @@ impl FilesResponse {
             .as_array()
             .ok_or_else(|| anyhow!("files value in API response is not an array"))?;
         let files: Vec<ApiFile> = files
-            .into_iter()
+            .iter()
             .map(|file| {
                 let file_id = file
                     .get("file_id")

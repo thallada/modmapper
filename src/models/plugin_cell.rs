@@ -57,7 +57,7 @@ pub async fn batched_insert<'a>(
         let mut plugin_ids: Vec<i32> = vec![];
         let mut cell_ids: Vec<i32> = vec![];
         let mut editor_ids: Vec<Option<&str>> = vec![];
-        batch.into_iter().for_each(|unsaved_plugin_cell| {
+        batch.iter().for_each(|unsaved_plugin_cell| {
             plugin_ids.push(unsaved_plugin_cell.plugin_id);
             cell_ids.push(unsaved_plugin_cell.cell_id);
             editor_ids.push(unsaved_plugin_cell.editor_id);

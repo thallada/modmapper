@@ -23,6 +23,19 @@ pub struct File {
     pub unable_to_extract_plugins: bool,
 }
 
+#[derive(Debug)]
+pub struct UnsavedFile<'a> {
+    pub name: &'a str,
+    pub file_name: &'a str,
+    pub nexus_file_id: i32,
+    pub mod_id: i32,
+    pub category: Option<&'a str>,
+    pub version: Option<&'a str>,
+    pub mod_version: Option<&'a str>,
+    pub size: i64,
+    pub uploaded_at: NaiveDateTime,
+}
+
 #[instrument(level = "debug", skip(pool))]
 pub async fn get_by_nexus_file_id(
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -59,17 +72,9 @@ pub async fn get_processed_nexus_file_ids_by_mod_id(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert(
+pub async fn insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
-    name: &str,
-    file_name: &str,
-    nexus_file_id: i32,
-    mod_id: i32,
-    category: Option<&str>,
-    version: Option<&str>,
-    mod_version: Option<&str>,
-    size: i64,
-    uploaded_at: NaiveDateTime,
+    unsaved_file: &UnsavedFile<'a>,
 ) -> Result<File> {
     sqlx::query_as!(
         File,
@@ -80,15 +85,15 @@ pub async fn insert(
             SET (name, file_name, category, version, mod_version, uploaded_at, updated_at) =
             (EXCLUDED.name, EXCLUDED.file_name, EXCLUDED.category, EXCLUDED.version, EXCLUDED.mod_version, EXCLUDED.uploaded_at, now())
             RETURNING *",
-        name,
-        file_name,
-        nexus_file_id,
-        mod_id,
-        category,
-        version,
-        mod_version,
-        size,
-        uploaded_at
+        unsaved_file.name,
+        unsaved_file.file_name,
+        unsaved_file.nexus_file_id,
+        unsaved_file.mod_id,
+        unsaved_file.category,
+        unsaved_file.version,
+        unsaved_file.mod_version,
+        unsaved_file.size,
+        unsaved_file.uploaded_at
     )
     .fetch_one(pool)
     .await

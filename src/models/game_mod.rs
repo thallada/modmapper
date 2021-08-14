@@ -106,7 +106,7 @@ pub async fn batched_insert<'a>(
         let mut categories: Vec<Option<&str>> = vec![];
         let mut descriptions: Vec<Option<&str>> = vec![];
         let mut game_ids: Vec<i32> = vec![];
-        batch.into_iter().for_each(|unsaved_mod| {
+        batch.iter().for_each(|unsaved_mod| {
             names.push(unsaved_mod.name);
             nexus_mod_ids.push(unsaved_mod.nexus_mod_id);
             authors.push(unsaved_mod.author);

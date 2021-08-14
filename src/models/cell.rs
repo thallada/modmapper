@@ -73,7 +73,7 @@ pub async fn batched_insert<'a>(
         let mut ys: Vec<Option<i32>> = vec![];
         let mut world_ids: Vec<Option<i32>> = vec![];
         let mut is_persistents: Vec<bool> = vec![];
-        batch.into_iter().for_each(|unsaved_cell| {
+        batch.iter().for_each(|unsaved_cell| {
             form_ids.push(unsaved_cell.form_id);
             masters.push(unsaved_cell.master);
             xs.push(unsaved_cell.x);

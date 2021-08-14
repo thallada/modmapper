@@ -21,19 +21,24 @@ pub struct Plugin {
     pub created_at: NaiveDateTime,
 }
 
+#[derive(Debug)]
+pub struct UnsavedPlugin<'a> {
+    pub name: &'a str,
+    pub hash: i64,
+    pub file_id: i32,
+    pub version: f64,
+    pub size: i64,
+    pub author: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub masters: &'a [&'a str],
+    pub file_name: &'a str,
+    pub file_path: &'a str,
+}
+
 #[instrument(level = "debug", skip(pool))]
-pub async fn insert(
+pub async fn insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
-    name: &str,
-    hash: i64,
-    file_id: i32,
-    version: f64,
-    size: i64,
-    author: Option<&str>,
-    description: Option<&str>,
-    masters: &[&str],
-    file_name: &str,
-    file_path: &str,
+    unsaved_plugin: &UnsavedPlugin<'a>,
 ) -> Result<Plugin> {
     // sqlx doesn't understand slices of &str with the query_as! macro: https://github.com/launchbadge/sqlx/issues/280
     sqlx::query_as(
@@ -45,16 +50,16 @@ pub async fn insert(
             (EXCLUDED.name, EXCLUDED.hash, EXCLUDED.version, EXCLUDED.author, EXCLUDED.description, EXCLUDED.masters, EXCLUDED.file_name, now())
             RETURNING *"#,
     )
-    .bind(name)
-    .bind(hash)
-    .bind(file_id)
-    .bind(version)
-    .bind(size)
-    .bind(author)
-    .bind(description)
-    .bind(masters)
-    .bind(file_name)
-    .bind(file_path)
+    .bind(unsaved_plugin.name)
+    .bind(unsaved_plugin.hash)
+    .bind(unsaved_plugin.file_id)
+    .bind(unsaved_plugin.version)
+    .bind(unsaved_plugin.size)
+    .bind(unsaved_plugin.author)
+    .bind(unsaved_plugin.description)
+    .bind(unsaved_plugin.masters)
+    .bind(unsaved_plugin.file_name)
+    .bind(unsaved_plugin.file_path)
     .fetch_one(pool)
     .await
     .context("Failed to insert plugin")

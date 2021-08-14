@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 use crate::models::file::File;
 use crate::models::game_mod::Mod;
-use crate::models::plugin;
+use crate::models::{plugin, plugin::UnsavedPlugin};
 use crate::models::{cell, cell::UnsavedCell};
 use crate::models::{plugin_cell, plugin_cell::UnsavedPluginCell};
 use crate::models::{plugin_world, plugin_world::UnsavedPluginWorld};
@@ -36,7 +36,7 @@ pub async fn process_plugin(
     db_mod: &Mod,
     file_path: &str,
 ) -> Result<()> {
-    if plugin_buf.len() == 0 {
+    if plugin_buf.is_empty() {
         warn!("skipping processing of invalid empty plugin");
         return Ok(());
     }
@@ -58,16 +58,18 @@ pub async fn process_plugin(
             let masters: Vec<&str> = plugin.header.masters.iter().map(|s| s.borrow()).collect();
             let plugin_row = plugin::insert(
                 &pool,
-                &db_file.name,
-                hash as i64,
-                db_file.id,
-                plugin.header.version as f64,
-                plugin_buf.len() as i64,
-                author,
-                description,
-                &masters,
-                &file_name,
-                file_path,
+                &UnsavedPlugin {
+                    name: &db_file.name,
+                    hash: hash as i64,
+                    file_id: db_file.id,
+                    version: plugin.header.version as f64,
+                    size: plugin_buf.len() as i64,
+                    author,
+                    description,
+                    masters: &masters,
+                    file_name: &file_name,
+                    file_path,
+                },
             )
             .await?;
 

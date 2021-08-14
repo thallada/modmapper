@@ -57,10 +57,10 @@ pub async fn batched_insert<'a>(
         let mut plugin_ids: Vec<i32> = vec![];
         let mut world_ids: Vec<i32> = vec![];
         let mut editor_ids: Vec<&str> = vec![];
-        batch.into_iter().for_each(|unsaved_plugin_world| {
+        batch.iter().for_each(|unsaved_plugin_world| {
             plugin_ids.push(unsaved_plugin_world.plugin_id);
             world_ids.push(unsaved_plugin_world.world_id);
-            editor_ids.push(unsaved_plugin_world.editor_id.clone());
+            editor_ids.push(unsaved_plugin_world.editor_id);
         });
         saved_plugin_worlds.append(
             &mut sqlx::query_as(

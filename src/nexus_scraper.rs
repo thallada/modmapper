@@ -76,7 +76,6 @@ impl ModListResponse {
                     .attr("data-mod-id")
                     .expect("Missing mod id attribute")
                     .parse::<i32>()
-                    .ok()
                     .expect("Failed to parse mod id");
                 let name_elem = right
                     .select(&name_select)
