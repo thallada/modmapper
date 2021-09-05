@@ -1,7 +1,8 @@
 use anyhow::Result;
 use argh::FromArgs;
+use chrono::{NaiveDateTime, NaiveTime};
 use dotenv::dotenv;
-use humansize::{FileSize, file_size_opts};
+use humansize::{file_size_opts, FileSize};
 use models::file::File;
 use models::game_mod::Mod;
 use reqwest::StatusCode;
@@ -160,14 +161,14 @@ async fn extract_with_unrar(
             Err(err) => {
                 warn!(error = %err, "failed to extract with unrar");
                 file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
-                return Ok(())
+                return Ok(());
             }
-            Ok(extract) => extract
+            Ok(extract) => extract,
         };
         if let Err(err) = extract.process() {
             warn!(error = %err, "failed to extract with unrar");
             file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
-            return Ok(())
+            return Ok(());
         }
 
         for file_path in plugin_file_paths.iter() {
@@ -216,7 +217,7 @@ pub async fn main() -> Result<()> {
         let scraped = mod_list_resp.scrape_mods()?;
 
         has_next_page = scraped.has_next_page;
-        let processed_mods = game_mod::bulk_get_fully_processed_nexus_mod_ids(
+        let processed_mods = game_mod::bulk_get_last_updated_by_nexus_mod_ids(
             &pool,
             &scraped
                 .mods
@@ -225,10 +226,22 @@ pub async fn main() -> Result<()> {
                 .collect::<Vec<i32>>(),
         )
         .await?;
-        let mods_to_create: Vec<UnsavedMod> = scraped
+        let mods_to_create_or_update: Vec<UnsavedMod> = scraped
             .mods
             .iter()
-            .filter(|scraped_mod| !processed_mods.contains(&scraped_mod.nexus_mod_id))
+            .filter(|scraped_mod| {
+                if let Some(processed_mod) = processed_mods
+                    .iter()
+                    .find(|processed_mod| processed_mod.nexus_mod_id == scraped_mod.nexus_mod_id)
+                {
+                    if processed_mod.last_updated_files_at
+                        > NaiveDateTime::new(scraped_mod.last_update, NaiveTime::from_hms(0, 0, 0))
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
             .map(|scraped_mod| UnsavedMod {
                 name: scraped_mod.name,
                 nexus_mod_id: scraped_mod.nexus_mod_id,
@@ -239,7 +252,7 @@ pub async fn main() -> Result<()> {
             })
             .collect();
 
-        let mods = game_mod::batched_insert(&pool, &mods_to_create).await?;
+        let mods = game_mod::batched_insert(&pool, &mods_to_create_or_update).await?;
 
         for db_mod in mods {
             let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
@@ -316,7 +329,9 @@ pub async fn main() -> Result<()> {
                     }
                 };
 
-                let humanized_size = api_file.size.file_size(file_size_opts::CONVENTIONAL)
+                let humanized_size = api_file
+                    .size
+                    .file_size(file_size_opts::CONVENTIONAL)
                     .expect("unable to create human-readable file size");
                 info!(size = %humanized_size, "decided to download file");
                 let download_link_resp =
@@ -361,7 +376,7 @@ pub async fn main() -> Result<()> {
                         warn!(initial_bytes = ?initial_bytes, "unable to determine file type of archive, skipping file");
                         file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
                         continue;
-                    },
+                    }
                 };
                 info!(
                     mime_type = kind.mime_type(),
@@ -375,7 +390,15 @@ pub async fn main() -> Result<()> {
                         // https://github.com/libarchive/libarchive/issues/373, https://github.com/libarchive/libarchive/issues/1426
                         tokio_file.seek(SeekFrom::Start(0)).await?;
                         let mut file = tokio_file.try_clone().await?.into_std().await;
-                        match extract_with_unrar(&mut file, &pool, &db_file, &db_mod, checked_metadata).await {
+                        match extract_with_unrar(
+                            &mut file,
+                            &pool,
+                            &db_file,
+                            &db_mod,
+                            checked_metadata,
+                        )
+                        .await
+                        {
                             Ok(_) => Ok(()),
                             Err(err) => {
                                 // unrar failed to extract rar file (e.g. archive has unicode filenames)
@@ -396,7 +419,8 @@ pub async fn main() -> Result<()> {
                                 if err
                                     .downcast_ref::<extractors::compress_tools::ExtractorError>()
                                     .is_some()
-                                    && (kind.mime_type() == "application/zip" || kind.mime_type() == "application/x-7z-compressed")
+                                    && (kind.mime_type() == "application/zip"
+                                        || kind.mime_type() == "application/x-7z-compressed")
                                 {
                                     // compress_tools or libarchive failed to extract zip/7z file (e.g. archive is deflate64 compressed)
                                     // Attempt to uncompress the archive using `7z` unix command instead

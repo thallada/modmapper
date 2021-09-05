@@ -45,21 +45,31 @@ pub async fn get_by_nexus_mod_id(
     .context("Failed to get mod")
 }
 
+pub struct ModLastUpdatedFilesAt {
+    pub nexus_mod_id: i32,
+    pub last_updated_files_at: NaiveDateTime,
+}
+
 #[instrument(level = "debug", skip(pool))]
-pub async fn bulk_get_fully_processed_nexus_mod_ids(
+pub async fn bulk_get_last_updated_by_nexus_mod_ids(
     pool: &sqlx::Pool<sqlx::Postgres>,
     nexus_mod_ids: &[i32],
-) -> Result<Vec<i32>> {
+) -> Result<Vec<ModLastUpdatedFilesAt>> {
     sqlx::query!(
-        "SELECT nexus_mod_id FROM mods
+        "SELECT nexus_mod_id, last_updated_files_at FROM mods
             WHERE nexus_mod_id = ANY($1::int[])
             AND last_updated_files_at IS NOT NULL",
         nexus_mod_ids,
     )
-    .map(|row| row.nexus_mod_id)
+    .map(|row| ModLastUpdatedFilesAt {
+        nexus_mod_id: row.nexus_mod_id,
+        last_updated_files_at: row
+            .last_updated_files_at
+            .expect("last_updated_files_at is null"),
+    })
     .fetch_all(pool)
     .await
-    .context("Failed to get fully processed , last_updated_files_at: () mods")
+    .context("Failed to bulk get last_updated_files_at by nexus_mod_ids")
 }
 
 #[instrument(level = "debug", skip(pool))]

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::NaiveDate;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use tracing::{info, instrument};
@@ -8,12 +9,14 @@ use crate::nexus_api::GAME_ID;
 pub struct ModListResponse {
     html: Html,
 }
+
 pub struct ScrapedMod<'a> {
     pub nexus_mod_id: i32,
     pub name: &'a str,
     pub category: Option<&'a str>,
     pub author: &'a str,
     pub desc: Option<&'a str>,
+    pub last_update: NaiveDate,
 }
 
 pub struct ModListScrape<'a> {
@@ -25,7 +28,7 @@ pub struct ModListScrape<'a> {
 pub async fn get_mod_list_page(client: &Client, page: usize) -> Result<ModListResponse> {
     let res = client
         .get(format!(
-            "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,include_adult:true,page_size:20,show_game_filter:false,open:false,page:{},sort_by:OLD_u_downloads",
+            "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,include_adult:true,page_size:20,show_game_filter:false,open:false,page:{},sort_by:lastupdate",
             GAME_ID,
             page
         ))
@@ -52,6 +55,7 @@ impl ModListResponse {
             Selector::parse("div.category a").expect("failed to parse CSS selector");
         let author_select = Selector::parse("div.author a").expect("failed to parse CSS selector");
         let desc_select = Selector::parse("p.desc").expect("failed to parse CSS selector");
+        let last_update_select = Selector::parse("div.date").expect("failed to parse CSS selector");
         let next_page_select =
             Selector::parse("div.pagination li.next").expect("failed to parse CSS selector");
 
@@ -86,9 +90,7 @@ impl ModListResponse {
                     .select(&category_select)
                     .next()
                     .expect("Missing category link for mod");
-                let category = category_elem
-                    .text()
-                    .next();
+                let category = category_elem.text().next();
                 let author_elem = right
                     .select(&author_select)
                     .next()
@@ -102,6 +104,18 @@ impl ModListResponse {
                     .next()
                     .expect("Missing desc elem for mod");
                 let desc = desc_elem.text().next();
+                let last_update_elem = right
+                    .select(&last_update_select)
+                    .next()
+                    .expect("Missing last update elem for mod");
+                let last_update = last_update_elem
+                    .text()
+                    .skip(1)
+                    .next()
+                    .expect("Missing last update text for mod")
+                    .trim();
+                let last_update = NaiveDate::parse_from_str(last_update, "%d %b %Y")
+                    .expect("Cannot parse last update date");
 
                 ScrapedMod {
                     nexus_mod_id,
@@ -109,6 +123,7 @@ impl ModListResponse {
                     category,
                     author,
                     desc,
+                    last_update,
                 }
             })
             .collect();
