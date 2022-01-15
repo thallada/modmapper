@@ -6,8 +6,9 @@ use humansize::{file_size_opts, FileSize};
 use models::file::File;
 use models::game_mod::Mod;
 use reqwest::StatusCode;
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -26,6 +27,7 @@ mod nexus_api;
 mod nexus_scraper;
 mod plugin_processor;
 
+use models::cell;
 use models::file;
 use models::game;
 use models::{game_mod, game_mod::UnsavedMod};
@@ -41,6 +43,10 @@ struct Args {
     #[argh(option, short = 'p', default = "1")]
     /// the page number to start scraping for mods on nexus mods.
     page: usize,
+
+    /// output the cell mod edit counts as json
+    #[argh(switch, short = 'e')]
+    dump_edits: bool,
 }
 
 async fn extract_with_compress_tools(
@@ -200,15 +206,31 @@ pub async fn main() -> Result<()> {
         .max_connections(5)
         .connect(&env::var("DATABASE_URL")?)
         .await?;
+
+    let args: Args = argh::from_env();
+
+    if args.dump_edits {
+        let mut cell_mod_edit_counts = HashMap::new();
+        for x in -77..75 {
+            for y in -50..44 {
+                if let Some(count) = cell::count_mod_edits(&pool, "Skyrim.esm", 1, x, y).await? {
+                    cell_mod_edit_counts.insert(format!("{},{}", x, y), count);
+                }
+            }
+        }
+        println!("{}", serde_json::to_string(&cell_mod_edit_counts)?);
+        return Ok(());
+    }
+
+    let mut page = args.page;
+    let mut has_next_page = true;
+
     let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
         .build()?;
 
-    let args: Args = argh::from_env();
-    let mut page = args.page;
-    let mut has_next_page = true;
 
     while has_next_page {
         let page_span = info_span!("page", page);

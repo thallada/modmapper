@@ -104,3 +104,29 @@ pub async fn batched_insert<'a>(
     }
     Ok(saved_cells)
 }
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn count_mod_edits(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    master: &str,
+    world_id: i32,
+    x: i32,
+    y: i32,
+) -> Result<Option<i64>> {
+    sqlx::query_scalar!(
+        "SELECT COUNT(DISTINCT mods.id)
+            FROM cells
+            JOIN plugin_cells on cells.id = cell_id
+            JOIN plugins ON plugins.id = plugin_id
+            JOIN files ON files.id = file_id
+            JOIN mods ON mods.id = mod_id
+            WHERE master = $1 AND world_id = $2 AND x = $3 and y = $4",
+        master,
+        world_id,
+        x,
+        y,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to count mod edits on cell")
+}
