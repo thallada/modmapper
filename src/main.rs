@@ -271,22 +271,6 @@ pub async fn main() -> Result<()> {
         let mods_to_create_or_update: Vec<UnsavedMod> = scraped
             .mods
             .iter()
-            .filter(|scraped_mod| {
-                if let Some(processed_mod) = processed_mods
-                    .iter()
-                    .find(|processed_mod| processed_mod.nexus_mod_id == scraped_mod.nexus_mod_id)
-                {
-                    if processed_mod.last_updated_files_at
-                        > NaiveDateTime::new(
-                            scraped_mod.last_update_at,
-                            NaiveTime::from_hms(0, 0, 0),
-                        )
-                    {
-                        return false;
-                    }
-                }
-                true
-            })
             .map(|scraped_mod| UnsavedMod {
                 name: scraped_mod.name,
                 nexus_mod_id: scraped_mod.nexus_mod_id,
@@ -309,6 +293,22 @@ pub async fn main() -> Result<()> {
             .collect();
 
         let mods = game_mod::batched_insert(&pool, &mods_to_create_or_update).await?;
+
+        let mods: Vec<Mod> =
+            mods.into_iter()
+                .filter(|updated_mod| {
+                    if let Some(processed_mod) = processed_mods.iter().find(|processed_mod| {
+                        processed_mod.nexus_mod_id == updated_mod.nexus_mod_id
+                    }) {
+                        if let Some(last_update_at) = updated_mod.last_update_at {
+                            if processed_mod.last_updated_files_at > last_update_at {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                })
+                .collect();
 
         for db_mod in mods {
             let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
