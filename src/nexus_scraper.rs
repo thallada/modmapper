@@ -100,13 +100,12 @@ impl ModListResponse {
                     .next()
                     .expect("Missing category link for mod");
                 let category_id = match category_elem.value().attr("href") {
-                    Some(href) => Some(
-                        href.split("/")
-                            .nth(6)
-                            .expect("Missing category id for mod")
-                            .parse::<i32>()
-                            .expect("Failed to parse category id"),
-                    ),
+                    Some(href) => href
+                        .split("/")
+                        .nth(6)
+                        .expect("Missing category id for mod")
+                        .parse::<i32>()
+                        .ok(),
                     None => None,
                 };
                 let category_name = category_elem.text().next();
@@ -147,7 +146,6 @@ impl ModListResponse {
                     .next()
                     .expect("Missing last update text for mod")
                     .trim();
-                dbg!(&first_upload_at);
                 let first_upload_at = NaiveDate::parse_from_str(first_upload_at, "%d %b %Y")
                     .expect("Cannot parse first upload date");
                 let last_update_date_text = right
