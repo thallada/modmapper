@@ -6,12 +6,12 @@ use humansize::{file_size_opts, FileSize};
 use models::file::File;
 use models::game_mod::Mod;
 use reqwest::StatusCode;
-use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::io::Write;
 use std::process::Command;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -44,9 +44,13 @@ struct Args {
     /// the page number to start scraping for mods on nexus mods.
     page: usize,
 
-    /// output the cell mod edit counts as json
-    #[argh(switch, short = 'e')]
-    dump_edits: bool,
+    /// file to output the cell mod edit counts as json
+    #[argh(option, short = 'e')]
+    dump_edits: Option<String>,
+
+    /// folder to output all cell data as json files
+    #[argh(option, short = 'c')]
+    cell_data: Option<String>,
 }
 
 async fn extract_with_compress_tools(
@@ -209,7 +213,7 @@ pub async fn main() -> Result<()> {
 
     let args: Args = argh::from_env();
 
-    if args.dump_edits {
+    if let Some(dump_edits) = args.dump_edits {
         let mut cell_mod_edit_counts = HashMap::new();
         for x in -77..75 {
             for y in -50..44 {
@@ -218,7 +222,24 @@ pub async fn main() -> Result<()> {
                 }
             }
         }
-        println!("{}", serde_json::to_string(&cell_mod_edit_counts)?);
+        let mut file = std::fs::File::create(dump_edits)?;
+        write!(file, "{}", serde_json::to_string(&cell_mod_edit_counts)?)?;
+        return Ok(());
+    }
+
+    if let Some(cell_data_dir) = args.cell_data {
+        for x in -77..75 {
+            for y in -50..44 {
+                if let Ok(data) = cell::get_cell_data(&pool, "Skyrim.esm", 1, x, y).await {
+                    let path = format!("{}/{}", &cell_data_dir, x);
+                    let path = std::path::Path::new(&path);
+                    std::fs::create_dir_all(&path)?;
+                    let path = path.join(format!("{}.json", y));
+                    let mut file = std::fs::File::create(path)?;
+                    write!(file, "{}", serde_json::to_string(&data)?)?;
+                }
+            }
+        }
         return Ok(());
     }
 
@@ -230,7 +251,6 @@ pub async fn main() -> Result<()> {
         .timeout(REQUEST_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
         .build()?;
-
 
     while has_next_page {
         let page_span = info_span!("page", page);
