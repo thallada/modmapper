@@ -162,7 +162,7 @@ pub async fn get_cell_data(
                 COUNT(DISTINCT plugins.id) as plugins_count,
                 COUNT(DISTINCT files.id) as files_count,
                 COUNT(DISTINCT mods.id) as mods_count,
-                json_agg(mods.*) as mods
+                json_agg(DISTINCT mods.*) as mods
             FROM cells
             JOIN plugin_cells on cells.id = cell_id
             JOIN plugins ON plugins.id = plugin_id
