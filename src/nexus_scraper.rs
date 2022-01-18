@@ -13,10 +13,14 @@ pub struct ModListResponse {
 pub struct ScrapedMod<'a> {
     pub nexus_mod_id: i32,
     pub name: &'a str,
-    pub category: Option<&'a str>,
-    pub author: &'a str,
+    pub category_name: Option<&'a str>,
+    pub category_id: Option<i32>,
+    pub author_name: &'a str,
+    pub author_id: i32,
     pub desc: Option<&'a str>,
-    pub last_update: NaiveDate,
+    pub thumbnail_link: Option<&'a str>,
+    pub last_update_at: NaiveDate,
+    pub first_upload_at: NaiveDate,
 }
 
 pub struct ModListScrape<'a> {
@@ -55,7 +59,12 @@ impl ModListResponse {
             Selector::parse("div.category a").expect("failed to parse CSS selector");
         let author_select = Selector::parse("div.author a").expect("failed to parse CSS selector");
         let desc_select = Selector::parse("p.desc").expect("failed to parse CSS selector");
-        let last_update_select = Selector::parse("div.date").expect("failed to parse CSS selector");
+        let thumbnail_select =
+            Selector::parse("a.mod-image img.fore").expect("failed to parse CSS selector");
+        let first_upload_date_select =
+            Selector::parse("time.date").expect("failed to parse CSS selector");
+        let last_update_date_select =
+            Selector::parse("div.date").expect("failed to parse CSS selector");
         let next_page_select =
             Selector::parse("div.pagination li.next").expect("failed to parse CSS selector");
 
@@ -90,12 +99,31 @@ impl ModListResponse {
                     .select(&category_select)
                     .next()
                     .expect("Missing category link for mod");
-                let category = category_elem.text().next();
+                let category_id = match category_elem.value().attr("href") {
+                    Some(href) => Some(
+                        href.split("/")
+                            .nth(6)
+                            .expect("Missing category id for mod")
+                            .parse::<i32>()
+                            .expect("Failed to parse category id"),
+                    ),
+                    None => None,
+                };
+                let category_name = category_elem.text().next();
                 let author_elem = right
                     .select(&author_select)
                     .next()
                     .expect("Missing author link for mod");
-                let author = author_elem
+                let author_id = author_elem
+                    .value()
+                    .attr("href")
+                    .expect("Missing author link href for mod")
+                    .split("/")
+                    .last()
+                    .expect("Missing author id for mod")
+                    .parse::<i32>()
+                    .expect("Failed to parse author id");
+                let author_name = author_elem
                     .text()
                     .next()
                     .expect("Missing author text for mod");
@@ -104,26 +132,48 @@ impl ModListResponse {
                     .next()
                     .expect("Missing desc elem for mod");
                 let desc = desc_elem.text().next();
-                let last_update_elem = right
-                    .select(&last_update_select)
+                let thumbnail_elem = left
+                    .select(&thumbnail_select)
                     .next()
-                    .expect("Missing last update elem for mod");
-                let last_update = last_update_elem
-                    .text()
+                    .expect("Missing thumbnail elem for mod");
+                let thumbnail_link = thumbnail_elem.value().attr("src");
+                let first_upload_date_text = right
+                    .select(&first_upload_date_select)
+                    .next()
+                    .expect("Missing dates elem for mod")
+                    .text();
+                let first_upload_at = first_upload_date_text
+                    .skip(2)
+                    .next()
+                    .expect("Missing last update text for mod")
+                    .trim();
+                dbg!(&first_upload_at);
+                let first_upload_at = NaiveDate::parse_from_str(first_upload_at, "%d %b %Y")
+                    .expect("Cannot parse first upload date");
+                let last_update_date_text = right
+                    .select(&last_update_date_select)
+                    .next()
+                    .expect("Missing dates elem for mod")
+                    .text();
+                let last_update_at = last_update_date_text
                     .skip(1)
                     .next()
                     .expect("Missing last update text for mod")
                     .trim();
-                let last_update = NaiveDate::parse_from_str(last_update, "%d %b %Y")
+                let last_update_at = NaiveDate::parse_from_str(last_update_at, "%d %b %Y")
                     .expect("Cannot parse last update date");
 
                 ScrapedMod {
                     nexus_mod_id,
                     name,
-                    category,
-                    author,
+                    category_name,
+                    category_id,
+                    author_name,
+                    author_id,
                     desc,
-                    last_update,
+                    thumbnail_link,
+                    last_update_at,
+                    first_upload_at,
                 }
             })
             .collect();

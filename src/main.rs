@@ -277,7 +277,10 @@ pub async fn main() -> Result<()> {
                     .find(|processed_mod| processed_mod.nexus_mod_id == scraped_mod.nexus_mod_id)
                 {
                     if processed_mod.last_updated_files_at
-                        > NaiveDateTime::new(scraped_mod.last_update, NaiveTime::from_hms(0, 0, 0))
+                        > NaiveDateTime::new(
+                            scraped_mod.last_update_at,
+                            NaiveTime::from_hms(0, 0, 0),
+                        )
                     {
                         return false;
                     }
@@ -287,10 +290,21 @@ pub async fn main() -> Result<()> {
             .map(|scraped_mod| UnsavedMod {
                 name: scraped_mod.name,
                 nexus_mod_id: scraped_mod.nexus_mod_id,
-                author: scraped_mod.author,
-                category: scraped_mod.category,
+                author_name: scraped_mod.author_name,
+                author_id: Some(scraped_mod.author_id),
+                category_name: scraped_mod.category_name,
+                category_id: scraped_mod.category_id,
                 description: scraped_mod.desc,
+                thumbnail_link: scraped_mod.thumbnail_link,
                 game_id: game.id,
+                last_update_at: Some(NaiveDateTime::new(
+                    scraped_mod.last_update_at,
+                    NaiveTime::from_hms(0, 0, 0),
+                )),
+                first_upload_at: Some(NaiveDateTime::new(
+                    scraped_mod.first_upload_at,
+                    NaiveTime::from_hms(0, 0, 0),
+                )),
             })
             .collect();
 
