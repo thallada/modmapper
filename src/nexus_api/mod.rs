@@ -8,6 +8,7 @@ use tracing::{info, warn};
 
 pub mod download_link;
 pub mod files;
+pub mod game_mod;
 pub mod metadata;
 
 pub static GAME_NAME: &str = "skyrimspecialedition";

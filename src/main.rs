@@ -51,6 +51,10 @@ struct Args {
     /// folder to output all cell data as json files
     #[argh(option, short = 'c')]
     cell_data: Option<String>,
+
+    /// backfill mods data from the Nexus API (temporary)
+    #[argh(switch, short = 'b')]
+    backfill_mods: bool,
 }
 
 async fn extract_with_compress_tools(
@@ -213,6 +217,24 @@ pub async fn main() -> Result<()> {
 
     let args: Args = argh::from_env();
 
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()?;
+
+    if args.backfill_mods {
+        for game_mod in game_mod::bulk_get_need_backfill(&pool).await? {
+            let response = nexus_api::game_mod::get(&client, game_mod.nexus_mod_id).await?;
+            let mod_data = response.extract_data()?;
+            game_mod::update_from_api_response(&pool, &game_mod, &mod_data).await?;
+            info!(
+                id = game_mod.id,
+                nexus_mod_id = game_mod.nexus_mod_id,
+                "backfilled mod data from api"
+            );
+        }
+    }
+
     if let Some(dump_edits) = args.dump_edits {
         let mut cell_mod_edit_counts = HashMap::new();
         for x in -77..75 {
@@ -247,10 +269,6 @@ pub async fn main() -> Result<()> {
     let mut has_next_page = true;
 
     let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .connect_timeout(CONNECT_TIMEOUT)
-        .build()?;
 
     while has_next_page {
         let page_span = info_span!("page", page);

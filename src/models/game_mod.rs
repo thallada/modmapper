@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use tracing::instrument;
 
+use crate::nexus_api::game_mod::ExtractedModData;
+
 use super::BATCH_SIZE;
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -209,4 +211,89 @@ pub async fn update_last_updated_files_at(
     .fetch_one(pool)
     .await
     .context("Failed to update mod")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn bulk_get_need_backfill(pool: &sqlx::Pool<sqlx::Postgres>) -> Result<Vec<Mod>> {
+    sqlx::query_as!(
+        Mod,
+        "SELECT * FROM mods
+            WHERE author_id IS NULL"
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to bulk get need backfill")
+}
+
+#[instrument(level = "debug", skip(pool, game_mod, mod_data))]
+pub async fn update_from_api_response<'a>(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    game_mod: &Mod,
+    mod_data: &ExtractedModData<'a>,
+) -> Result<Mod> {
+    let name = mod_data.name.unwrap_or(&game_mod.name);
+    let category_id = match mod_data.category_id {
+        Some(category_id) => Some(category_id),
+        None => game_mod.category_id,
+    };
+
+    let mut ret = sqlx::query_as!(
+        Mod,
+        "UPDATE mods
+            SET
+                nexus_mod_id = $2,
+                name = $3,
+                category_id = $4,
+                author_name = $5,
+                author_id = $6,
+                last_update_at = $7,
+                first_upload_at = $8
+            WHERE id = $1
+            RETURNING *",
+        game_mod.id,
+        mod_data.nexus_mod_id,
+        name,
+        category_id,
+        mod_data.author_name,
+        mod_data.author_id,
+        mod_data.last_update_at,
+        mod_data.first_upload_at,
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to update mod from api response")?;
+
+    if let Some(description) = mod_data.description {
+        ret = sqlx::query_as!(
+            Mod,
+            "UPDATE mods
+                SET
+                    description = $2
+                WHERE id = $1
+                RETURNING *",
+            game_mod.id,
+            description,
+        )
+        .fetch_one(pool)
+        .await
+        .context("Failed to update mod from api response")?;
+    }
+
+    if let Some(thumbnail_link) = mod_data.thumbnail_link {
+        ret = sqlx::query_as!(
+            Mod,
+            "UPDATE mods
+                SET
+                    thumbnail_link = $2
+                WHERE id = $1
+                RETURNING *",
+            game_mod.id,
+            thumbnail_link,
+        )
+        .fetch_one(pool)
+        .await
+        .context("Failed to update mod from api response")?;
+    }
+
+    Ok(ret)
 }
