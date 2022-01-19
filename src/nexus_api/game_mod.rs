@@ -82,11 +82,10 @@ impl ModResponse {
                 .as_str()
                 .expect("Failed to parse description in mod response")
         });
-        let thumbnail_link = self.json.get("picture_url").map(|thumbnail_link| {
-            thumbnail_link
-                .as_str()
-                .expect("Failed to parse picture_url in mod response")
-        });
+        let thumbnail_link = self
+            .json
+            .get("picture_url")
+            .and_then(|thumbnail_link| thumbnail_link.as_str());
         let user = self.json.get("user").expect("Missing user in mod response");
         let author_name = user
             .get("name")
