@@ -51,10 +51,6 @@ struct Args {
     /// folder to output all cell data as json files
     #[argh(option, short = 'c')]
     cell_data: Option<String>,
-
-    /// backfill mods data from the Nexus API (temporary)
-    #[argh(switch, short = 'b')]
-    backfill_mods: bool,
 }
 
 async fn extract_with_compress_tools(
@@ -217,24 +213,6 @@ pub async fn main() -> Result<()> {
 
     let args: Args = argh::from_env();
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .connect_timeout(CONNECT_TIMEOUT)
-        .build()?;
-
-    if args.backfill_mods {
-        for game_mod in game_mod::bulk_get_need_backfill(&pool).await? {
-            let response = nexus_api::game_mod::get(&client, game_mod.nexus_mod_id).await?;
-            let mod_data = response.extract_data()?;
-            game_mod::update_from_api_response(&pool, &game_mod, &mod_data).await?;
-            info!(
-                id = game_mod.id,
-                nexus_mod_id = game_mod.nexus_mod_id,
-                "backfilled mod data from api"
-            );
-        }
-    }
-
     if let Some(dump_edits) = args.dump_edits {
         let mut cell_mod_edit_counts = HashMap::new();
         for x in -77..75 {
@@ -270,6 +248,11 @@ pub async fn main() -> Result<()> {
 
     let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
 
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()?;
+
     while has_next_page {
         let page_span = info_span!("page", page);
         let _page_span = page_span.enter();
@@ -289,44 +272,44 @@ pub async fn main() -> Result<()> {
         let mods_to_create_or_update: Vec<UnsavedMod> = scraped
             .mods
             .iter()
+            .filter(|scraped_mod| {
+                if let Some(processed_mod) = processed_mods
+                    .iter()
+                    .find(|processed_mod| processed_mod.nexus_mod_id == scraped_mod.nexus_mod_id)
+                {
+                    if processed_mod.last_updated_files_at
+                        > NaiveDateTime::new(
+                            scraped_mod.last_update_at,
+                            NaiveTime::from_hms(0, 0, 0),
+                        )
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
             .map(|scraped_mod| UnsavedMod {
                 name: scraped_mod.name,
                 nexus_mod_id: scraped_mod.nexus_mod_id,
                 author_name: scraped_mod.author_name,
-                author_id: Some(scraped_mod.author_id),
+                author_id: scraped_mod.author_id,
                 category_name: scraped_mod.category_name,
                 category_id: scraped_mod.category_id,
                 description: scraped_mod.desc,
                 thumbnail_link: scraped_mod.thumbnail_link,
                 game_id: game.id,
-                last_update_at: Some(NaiveDateTime::new(
+                last_update_at: NaiveDateTime::new(
                     scraped_mod.last_update_at,
                     NaiveTime::from_hms(0, 0, 0),
-                )),
-                first_upload_at: Some(NaiveDateTime::new(
+                ),
+                first_upload_at: NaiveDateTime::new(
                     scraped_mod.first_upload_at,
                     NaiveTime::from_hms(0, 0, 0),
-                )),
+                ),
             })
             .collect();
 
         let mods = game_mod::batched_insert(&pool, &mods_to_create_or_update).await?;
-
-        let mods: Vec<Mod> =
-            mods.into_iter()
-                .filter(|updated_mod| {
-                    if let Some(processed_mod) = processed_mods.iter().find(|processed_mod| {
-                        processed_mod.nexus_mod_id == updated_mod.nexus_mod_id
-                    }) {
-                        if let Some(last_update_at) = updated_mod.last_update_at {
-                            if processed_mod.last_updated_files_at > last_update_at {
-                                return false;
-                            }
-                        }
-                    }
-                    true
-                })
-                .collect();
 
         for db_mod in mods {
             let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);

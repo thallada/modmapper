@@ -14,7 +14,7 @@ pub struct Mod {
     pub name: String,
     pub nexus_mod_id: i32,
     pub author_name: String,
-    pub author_id: Option<i32>,
+    pub author_id: i32,
     pub category_name: Option<String>,
     pub category_id: Option<i32>,
     pub description: Option<String>,
@@ -22,8 +22,8 @@ pub struct Mod {
     pub game_id: i32,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
-    pub last_update_at: Option<NaiveDateTime>,
-    pub first_upload_at: Option<NaiveDateTime>,
+    pub last_update_at: NaiveDateTime,
+    pub first_upload_at: NaiveDateTime,
     pub last_updated_files_at: Option<NaiveDateTime>,
 }
 
@@ -32,14 +32,14 @@ pub struct UnsavedMod<'a> {
     pub name: &'a str,
     pub nexus_mod_id: i32,
     pub author_name: &'a str,
-    pub author_id: Option<i32>,
+    pub author_id: i32,
     pub category_name: Option<&'a str>,
     pub category_id: Option<i32>,
     pub description: Option<&'a str>,
     pub thumbnail_link: Option<&'a str>,
     pub game_id: i32,
-    pub last_update_at: Option<NaiveDateTime>,
-    pub first_upload_at: Option<NaiveDateTime>,
+    pub last_update_at: NaiveDateTime,
+    pub first_upload_at: NaiveDateTime,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -96,8 +96,8 @@ pub async fn insert(
     description: Option<&str>,
     thumbnail_link: Option<&str>,
     game_id: i32,
-    last_update_at: Option<NaiveDateTime>,
-    first_upload_at: Option<NaiveDateTime>,
+    last_update_at: NaiveDateTime,
+    first_upload_at: NaiveDateTime,
 ) -> Result<Mod> {
     sqlx::query_as!(
         Mod,
@@ -135,14 +135,14 @@ pub async fn batched_insert<'a>(
         let mut names: Vec<&str> = vec![];
         let mut nexus_mod_ids: Vec<i32> = vec![];
         let mut author_names: Vec<&str> = vec![];
-        let mut author_ids: Vec<Option<i32>> = vec![];
+        let mut author_ids: Vec<i32> = vec![];
         let mut category_names: Vec<Option<&str>> = vec![];
         let mut category_ids: Vec<Option<i32>> = vec![];
         let mut descriptions: Vec<Option<&str>> = vec![];
         let mut thumbnail_links: Vec<Option<&str>> = vec![];
         let mut game_ids: Vec<i32> = vec![];
-        let mut last_update_ats: Vec<Option<NaiveDateTime>> = vec![];
-        let mut first_upload_ats: Vec<Option<NaiveDateTime>> = vec![];
+        let mut last_update_ats: Vec<NaiveDateTime> = vec![];
+        let mut first_upload_ats: Vec<NaiveDateTime> = vec![];
         batch.iter().for_each(|unsaved_mod| {
             names.push(unsaved_mod.name);
             nexus_mod_ids.push(unsaved_mod.nexus_mod_id);

@@ -1,0 +1,3 @@
+ALTER TABLE "mods" ALTER COLUMN "last_update_at" SET NOT NULL;
+ALTER TABLE "mods" ALTER COLUMN "first_upload_at" SET NOT NULL;
+ALTER TABLE "mods" ALTER COLUMN "author_id" SET NOT NULL;
