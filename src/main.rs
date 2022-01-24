@@ -51,6 +51,10 @@ struct Args {
     /// folder to output all cell data as json files
     #[argh(option, short = 'c')]
     cell_data: Option<String>,
+
+    /// folder to output all mod data as json files
+    #[argh(option, short = 'm')]
+    mod_data: Option<String>,
 }
 
 async fn extract_with_compress_tools(
@@ -239,6 +243,26 @@ pub async fn main() -> Result<()> {
                     write!(file, "{}", serde_json::to_string(&data)?)?;
                 }
             }
+        }
+        return Ok(());
+    }
+
+    if let Some(mod_data_dir) = args.mod_data {
+        let page_size = 20;
+        let mut page = 0;
+        loop {
+            let mods = game_mod::batched_get_with_cells(&pool, page_size, page).await?;
+            if mods.is_empty() {
+                break;
+            }
+            for mod_with_cells in mods {
+                let path = std::path::Path::new(&mod_data_dir);
+                std::fs::create_dir_all(&path)?;
+                let path = path.join(format!("{}.json", mod_with_cells.nexus_mod_id));
+                let mut file = std::fs::File::create(path)?;
+                write!(file, "{}", serde_json::to_string(&mod_with_cells)?)?;
+            }
+            page += 1;
         }
         return Ok(());
     }

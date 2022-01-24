@@ -42,6 +42,26 @@ pub struct UnsavedMod<'a> {
     pub first_upload_at: NaiveDateTime,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ModWithCells {
+    pub id: i32,
+    pub name: String,
+    pub nexus_mod_id: i32,
+    pub author_name: String,
+    pub author_id: i32,
+    pub category_name: Option<String>,
+    pub category_id: Option<i32>,
+    pub description: Option<String>,
+    pub thumbnail_link: Option<String>,
+    pub game_id: i32,
+    pub updated_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+    pub last_update_at: NaiveDateTime,
+    pub first_upload_at: NaiveDateTime,
+    pub last_updated_files_at: Option<NaiveDateTime>,
+    pub cells: Option<serde_json::Value>,
+}
+
 #[instrument(level = "debug", skip(pool))]
 pub async fn get_by_nexus_mod_id(
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -296,4 +316,32 @@ pub async fn update_from_api_response<'a>(
     }
 
     Ok(ret)
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn batched_get_with_cells(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    page_size: i64,
+    page: i64,
+) -> Result<Vec<ModWithCells>> {
+    let offset = page_size * page;
+    sqlx::query_as!(
+        ModWithCells,
+        "SELECT
+            mods.*,
+            json_agg(cells.*) AS cells
+        FROM mods
+        JOIN files ON files.mod_id = mods.id
+        JOIN plugins ON plugins.file_id = files.id
+        JOIN plugin_cells ON plugin_cells.plugin_id = plugins.id
+        JOIN cells ON cells.id = plugin_cells.cell_id
+        GROUP BY mods.id
+        LIMIT $1
+        OFFSET $2",
+        page_size,
+        offset,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get with cells")
 }
