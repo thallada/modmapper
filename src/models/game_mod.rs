@@ -322,24 +322,23 @@ pub async fn update_from_api_response<'a>(
 pub async fn batched_get_with_cells(
     pool: &sqlx::Pool<sqlx::Postgres>,
     page_size: i64,
-    page: i64,
+    last_id: Option<i32>,
 ) -> Result<Vec<ModWithCells>> {
-    let offset = page_size * page;
+    let last_id = last_id.unwrap_or(0);
     sqlx::query_as!(
         ModWithCells,
         "SELECT
             mods.*,
-            json_agg(cells.*) AS cells
+            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL), '[]') AS cells
         FROM mods
-        JOIN files ON files.mod_id = mods.id
-        JOIN plugins ON plugins.file_id = files.id
-        JOIN plugin_cells ON plugin_cells.plugin_id = plugins.id
+        JOIN plugin_cells ON plugin_cells.mod_id = mods.id
         JOIN cells ON cells.id = plugin_cells.cell_id
+        WHERE mods.id > $2
         GROUP BY mods.id
-        LIMIT $1
-        OFFSET $2",
+        ORDER BY mods.id ASC
+        LIMIT $1",
         page_size,
-        offset,
+        last_id,
     )
     .fetch_all(pool)
     .await

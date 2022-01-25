@@ -249,9 +249,9 @@ pub async fn main() -> Result<()> {
 
     if let Some(mod_data_dir) = args.mod_data {
         let page_size = 20;
-        let mut page = 0;
+        let mut last_id = None;
         loop {
-            let mods = game_mod::batched_get_with_cells(&pool, page_size, page).await?;
+            let mods = game_mod::batched_get_with_cells(&pool, page_size, last_id).await?;
             if mods.is_empty() {
                 break;
             }
@@ -261,8 +261,8 @@ pub async fn main() -> Result<()> {
                 let path = path.join(format!("{}.json", mod_with_cells.nexus_mod_id));
                 let mut file = std::fs::File::create(path)?;
                 write!(file, "{}", serde_json::to_string(&mod_with_cells)?)?;
+                last_id = Some(mod_with_cells.id);
             }
-            page += 1;
         }
         return Ok(());
     }
