@@ -11,8 +11,8 @@ pub struct PluginCell {
     pub id: i32,
     pub plugin_id: i32,
     pub cell_id: i32,
-    pub file_id: Option<i32>,
-    pub mod_id: Option<i32>,
+    pub file_id: i32,
+    pub mod_id: i32,
     pub editor_id: Option<String>,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
@@ -22,8 +22,8 @@ pub struct PluginCell {
 pub struct UnsavedPluginCell<'a> {
     pub plugin_id: i32,
     pub cell_id: i32,
-    pub file_id: Option<i32>,
-    pub mod_id: Option<i32>,
+    pub file_id: i32,
+    pub mod_id: i32,
     pub editor_id: Option<&'a str>,
 }
 
@@ -32,8 +32,8 @@ pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     plugin_id: i32,
     cell_id: i32,
-    file_id: Option<i32>,
-    mod_id: Option<i32>,
+    file_id: i32,
+    mod_id: i32,
     editor_id: Option<String>,
 ) -> Result<PluginCell> {
     sqlx::query_as!(
@@ -64,8 +64,8 @@ pub async fn batched_insert<'a>(
     for batch in plugin_cells.chunks(BATCH_SIZE) {
         let mut plugin_ids: Vec<i32> = vec![];
         let mut cell_ids: Vec<i32> = vec![];
-        let mut file_ids: Vec<Option<i32>> = vec![];
-        let mut mod_ids: Vec<Option<i32>> = vec![];
+        let mut file_ids: Vec<i32> = vec![];
+        let mut mod_ids: Vec<i32> = vec![];
         let mut editor_ids: Vec<Option<&str>> = vec![];
         batch.iter().for_each(|unsaved_plugin_cell| {
             plugin_ids.push(unsaved_plugin_cell.plugin_id);
