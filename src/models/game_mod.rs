@@ -331,8 +331,8 @@ pub async fn batched_get_with_cells(
             mods.*,
             COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL), '[]') AS cells
         FROM mods
-        JOIN plugin_cells ON plugin_cells.mod_id = mods.id
-        JOIN cells ON cells.id = plugin_cells.cell_id
+        LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
+        LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
         WHERE mods.id > $2
         GROUP BY mods.id
         ORDER BY mods.id ASC
