@@ -43,6 +43,13 @@ pub struct UnsavedMod<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ModForSearch {
+    pub id: i32,
+    pub name: String,
+    pub nexus_mod_id: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct ModWithCells {
     pub id: i32,
     pub name: String,
@@ -316,6 +323,31 @@ pub async fn update_from_api_response<'a>(
     }
 
     Ok(ret)
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn batched_get_for_search(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    page_size: i64,
+    last_id: Option<i32>,
+) -> Result<Vec<ModForSearch>> {
+    let last_id = last_id.unwrap_or(0);
+    sqlx::query_as!(
+        ModForSearch,
+        "SELECT
+            id,
+            name,
+            nexus_mod_id
+        FROM mods
+        WHERE id > $2
+        ORDER BY mods.id ASC
+        LIMIT $1",
+        page_size,
+        last_id,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get for search")
 }
 
 #[instrument(level = "debug", skip(pool))]

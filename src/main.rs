@@ -6,6 +6,7 @@ use humansize::{file_size_opts, FileSize};
 use models::file::File;
 use models::game_mod::Mod;
 use reqwest::StatusCode;
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -55,6 +56,10 @@ struct Args {
     /// folder to output all mod data as json files
     #[argh(option, short = 'm')]
     mod_data: Option<String>,
+
+    /// file to output all mod titles and ids as a json search index
+    #[argh(option, short = 's')]
+    mod_search_index: Option<String>,
 }
 
 async fn extract_with_compress_tools(
@@ -264,6 +269,33 @@ pub async fn main() -> Result<()> {
                 last_id = Some(mod_with_cells.id);
             }
         }
+        return Ok(());
+    }
+
+    if let Some(mod_search_index) = args.mod_search_index {
+        #[derive(Serialize)]
+        struct ModForSearchIdTranslated {
+            name: String,
+            id: i32,
+        }
+        let mut search_index = vec![];
+        let page_size = 20;
+        let mut last_id = None;
+        loop {
+            let mods = game_mod::batched_get_for_search(&pool, page_size, last_id).await?;
+            if mods.is_empty() {
+                break;
+            }
+            for mod_for_search in mods {
+                search_index.push(ModForSearchIdTranslated {
+                    name: mod_for_search.name,
+                    id: mod_for_search.nexus_mod_id,
+                });
+                last_id = Some(mod_for_search.id);
+            }
+        }
+        let mut file = std::fs::File::create(mod_search_index)?;
+        write!(file, "{}", serde_json::to_string(&search_index)?)?;
         return Ok(());
     }
 
