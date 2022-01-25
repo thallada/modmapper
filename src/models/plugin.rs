@@ -10,6 +10,7 @@ pub struct Plugin {
     pub name: String,
     pub hash: i64,
     pub file_id: i32,
+    pub mod_id: Option<i32>,
     pub version: f64,
     pub size: i64,
     pub author: Option<String>,
@@ -26,6 +27,7 @@ pub struct UnsavedPlugin<'a> {
     pub name: &'a str,
     pub hash: i64,
     pub file_id: i32,
+    pub mod_id: Option<i32>,
     pub version: f64,
     pub size: i64,
     pub author: Option<&'a str>,
@@ -43,16 +45,17 @@ pub async fn insert<'a>(
     // sqlx doesn't understand slices of &str with the query_as! macro: https://github.com/launchbadge/sqlx/issues/280
     sqlx::query_as(
         r#"INSERT INTO plugins
-            (name, hash, file_id, version, size, author, description, masters, file_name, file_path, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
+            (name, hash, file_id, mod_id, version, size, author, description, masters, file_name, file_path, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
             ON CONFLICT (file_id, file_path) DO UPDATE
-            SET (name, hash, version, author, description, masters, file_name, updated_at) =
-            (EXCLUDED.name, EXCLUDED.hash, EXCLUDED.version, EXCLUDED.author, EXCLUDED.description, EXCLUDED.masters, EXCLUDED.file_name, now())
+            SET (name, hash, mod_id, version, author, description, masters, file_name, updated_at) =
+            (EXCLUDED.name, EXCLUDED.hash, EXCLUDED.mod_id, EXCLUDED.version, EXCLUDED.author, EXCLUDED.description, EXCLUDED.masters, EXCLUDED.file_name, now())
             RETURNING *"#,
     )
     .bind(unsaved_plugin.name)
     .bind(unsaved_plugin.hash)
     .bind(unsaved_plugin.file_id)
+    .bind(unsaved_plugin.mod_id)
     .bind(unsaved_plugin.version)
     .bind(unsaved_plugin.size)
     .bind(unsaved_plugin.author)

@@ -215,6 +215,35 @@ pub async fn main() -> Result<()> {
         .connect(&env::var("DATABASE_URL")?)
         .await?;
 
+    // Temporary backfill
+    sqlx::query!(
+        r#"UPDATE plugins
+        SET mod_id = files.mod_id
+        FROM files
+        WHERE
+            files.id = plugins.file_id AND
+            plugins.mod_id IS NULL
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+    sqlx::query!(
+        r#"UPDATE plugin_cells
+        SET
+            file_id = plugins.file_id,
+            mod_id = files.mod_id
+        FROM plugins
+        JOIN files ON plugins.file_id = files.id
+        WHERE
+            plugins.id = plugin_cells.plugin_id AND
+            plugin_cells.file_id IS NULL AND
+            plugin_cells.mod_id IS NULL
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+    return Ok(());
+
     let args: Args = argh::from_env();
 
     if let Some(dump_edits) = args.dump_edits {

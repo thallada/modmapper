@@ -11,6 +11,8 @@ pub struct PluginCell {
     pub id: i32,
     pub plugin_id: i32,
     pub cell_id: i32,
+    pub file_id: Option<i32>,
+    pub mod_id: Option<i32>,
     pub editor_id: Option<String>,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
@@ -20,6 +22,8 @@ pub struct PluginCell {
 pub struct UnsavedPluginCell<'a> {
     pub plugin_id: i32,
     pub cell_id: i32,
+    pub file_id: Option<i32>,
+    pub mod_id: Option<i32>,
     pub editor_id: Option<&'a str>,
 }
 
@@ -28,18 +32,22 @@ pub async fn insert(
     pool: &sqlx::Pool<sqlx::Postgres>,
     plugin_id: i32,
     cell_id: i32,
+    file_id: Option<i32>,
+    mod_id: Option<i32>,
     editor_id: Option<String>,
 ) -> Result<PluginCell> {
     sqlx::query_as!(
         PluginCell,
         "INSERT INTO plugin_cells
-            (plugin_id, cell_id, editor_id, created_at, updated_at)
-            VALUES ($1, $2, $3, now(), now())
+            (plugin_id, cell_id, file_id, mod_id, editor_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, now(), now())
             ON CONFLICT (plugin_id, cell_id) DO UPDATE
             SET (editor_id, updated_at) = (EXCLUDED.editor_id, now())
             RETURNING *",
         plugin_id,
         cell_id,
+        file_id,
+        mod_id,
         editor_id,
     )
     .fetch_one(pool)
@@ -56,23 +64,29 @@ pub async fn batched_insert<'a>(
     for batch in plugin_cells.chunks(BATCH_SIZE) {
         let mut plugin_ids: Vec<i32> = vec![];
         let mut cell_ids: Vec<i32> = vec![];
+        let mut file_ids: Vec<Option<i32>> = vec![];
+        let mut mod_ids: Vec<Option<i32>> = vec![];
         let mut editor_ids: Vec<Option<&str>> = vec![];
         batch.iter().for_each(|unsaved_plugin_cell| {
             plugin_ids.push(unsaved_plugin_cell.plugin_id);
             cell_ids.push(unsaved_plugin_cell.cell_id);
+            file_ids.push(unsaved_plugin_cell.file_id);
+            mod_ids.push(unsaved_plugin_cell.mod_id);
             editor_ids.push(unsaved_plugin_cell.editor_id);
         });
         saved_plugin_cells.append(
             // sqlx doesn't understand arrays of Options with the query_as! macro
             &mut sqlx::query_as(
-                r#"INSERT INTO plugin_cells (plugin_id, cell_id, editor_id, created_at, updated_at)
-                SELECT *, now(), now() FROM UNNEST($1::int[], $2::int[], $3::text[])
+                r#"INSERT INTO plugin_cells (plugin_id, cell_id, file_id, mod_id, editor_id, created_at, updated_at)
+                SELECT *, now(), now() FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[], $5::text[])
                 ON CONFLICT (plugin_id, cell_id) DO UPDATE
-                SET (editor_id, updated_at) = (EXCLUDED.editor_id, now())
+                SET (file_id, mod_id, editor_id, updated_at) = (EXCLUDED.file_id, EXCLUDED.mod_id, EXCLUDED.editor_id, now())
                 RETURNING *"#,
             )
             .bind(&plugin_ids)
             .bind(&cell_ids)
+            .bind(&file_ids)
+            .bind(&mod_ids)
             .bind(&editor_ids)
             .fetch_all(pool)
             .await

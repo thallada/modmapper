@@ -9,8 +9,8 @@ use tracing::{info, warn};
 
 use crate::models::file::File;
 use crate::models::game_mod::Mod;
-use crate::models::{plugin, plugin::UnsavedPlugin};
 use crate::models::{cell, cell::UnsavedCell};
+use crate::models::{plugin, plugin::UnsavedPlugin};
 use crate::models::{plugin_cell, plugin_cell::UnsavedPluginCell};
 use crate::models::{plugin_world, plugin_world::UnsavedPluginWorld};
 use crate::models::{world, world::UnsavedWorld};
@@ -62,6 +62,7 @@ pub async fn process_plugin(
                     name: &db_file.name,
                     hash: hash as i64,
                     file_id: db_file.id,
+                    mod_id: Some(db_mod.id),
                     version: plugin.header.version as f64,
                     size: plugin_buf.len() as i64,
                     author,
@@ -133,6 +134,8 @@ pub async fn process_plugin(
                 .map(|(db_cell, plugin_cell)| UnsavedPluginCell {
                     plugin_id: plugin_row.id,
                     cell_id: db_cell.id,
+                    file_id: Some(db_file.id),
+                    mod_id: Some(db_mod.id),
                     editor_id: plugin_cell.editor_id.as_ref().map(|id| id.as_ref()),
                 })
                 .collect();

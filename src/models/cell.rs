@@ -130,8 +130,8 @@ pub async fn count_mod_edits(
             FROM cells
             JOIN plugin_cells on cells.id = cell_id
             JOIN plugins ON plugins.id = plugin_id
-            JOIN files ON files.id = file_id
-            JOIN mods ON mods.id = mod_id
+            JOIN files ON files.id = plugins.file_id
+            JOIN mods ON mods.id = files.mod_id
             WHERE master = $1 AND world_id = $2 AND x = $3 and y = $4",
         master,
         world_id,
@@ -166,8 +166,8 @@ pub async fn get_cell_data(
             FROM cells
             JOIN plugin_cells on cells.id = cell_id
             JOIN plugins ON plugins.id = plugin_id
-            JOIN files ON files.id = file_id
-            JOIN mods ON mods.id = mod_id
+            JOIN files ON files.id = plugins.file_id
+            JOIN mods ON mods.id = files.mod_id
             WHERE master = $1 AND world_id = $2 AND x = $3 and y = $4
             GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
         master,
