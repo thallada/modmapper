@@ -363,11 +363,11 @@ pub async fn batched_get_with_cells(
         ModWithCells,
         "SELECT
             mods.*,
-            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL), '[]') AS cells
+            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells
         FROM mods
         LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
         LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-        WHERE mods.id > $2 AND cells.master = $3 AND cells.world_id = $4
+        WHERE mods.id > $2
         GROUP BY mods.id
         ORDER BY mods.id ASC
         LIMIT $1",
