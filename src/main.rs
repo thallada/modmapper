@@ -256,7 +256,8 @@ pub async fn main() -> Result<()> {
         let page_size = 20;
         let mut last_id = None;
         loop {
-            let mods = game_mod::batched_get_with_cells(&pool, page_size, last_id).await?;
+            let mods = game_mod::batched_get_with_cells(&pool, page_size, last_id, "Skyrim.esm", 1)
+                .await?;
             if mods.is_empty() {
                 break;
             }

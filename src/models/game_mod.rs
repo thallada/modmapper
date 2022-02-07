@@ -355,6 +355,8 @@ pub async fn batched_get_with_cells(
     pool: &sqlx::Pool<sqlx::Postgres>,
     page_size: i64,
     last_id: Option<i32>,
+    master: &str,
+    world_id: i32,
 ) -> Result<Vec<ModWithCells>> {
     let last_id = last_id.unwrap_or(0);
     sqlx::query_as!(
@@ -365,12 +367,14 @@ pub async fn batched_get_with_cells(
         FROM mods
         LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
         LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-        WHERE mods.id > $2
+        WHERE mods.id > $2 AND cells.master = $3 AND cells.world_id = $4
         GROUP BY mods.id
         ORDER BY mods.id ASC
         LIMIT $1",
         page_size,
         last_id,
+        master,
+        world_id
     )
     .fetch_all(pool)
     .await
