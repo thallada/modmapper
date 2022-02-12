@@ -20,8 +20,12 @@ use commands::{
 /// Downloads every mod off nexus mods, parses CELL and WRLD data from plugins in each, and saves the data to the database.
 struct Args {
     #[argh(option, short = 'p', default = "1")]
-    /// the page number to start scraping for mods on nexus mods.
+    /// the page number to start scraping for mods on nexus mods
     page: usize,
+
+    #[argh(option, short = 'f', default = "false")]
+    /// enable full scrape of all pages, rather than stopping after 50 pages of no updates
+    full: bool,
 
     /// file to output the cell mod edit counts as json
     #[argh(option, short = 'e')]
@@ -73,5 +77,5 @@ pub async fn main() -> Result<()> {
         return download_tiles(&dir).await;
     }
 
-    return update(&pool, args.page).await;
+    return update(&pool, args.page, args.full).await;
 }

@@ -19,9 +19,14 @@ use crate::nexus_scraper;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub async fn update(pool: &sqlx::Pool<sqlx::Postgres>, start_page: usize) -> Result<()> {
+pub async fn update(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    start_page: usize,
+    full: bool,
+) -> Result<()> {
     let mut page = start_page;
     let mut has_next_page = true;
+    let mut pages_with_no_updates = 0;
 
     let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
 
@@ -30,7 +35,14 @@ pub async fn update(pool: &sqlx::Pool<sqlx::Postgres>, start_page: usize) -> Res
         .connect_timeout(CONNECT_TIMEOUT)
         .build()?;
 
+    dbg!(full);
     while has_next_page {
+        dbg!(pages_with_no_updates);
+        if !full && pages_with_no_updates >= 50 {
+            warn!("No updates found for 50 pages in a row, aborting");
+            break;
+        }
+
         let page_span = info_span!("page", page);
         let _page_span = page_span.enter();
         let mod_list_resp = nexus_scraper::get_mod_list_page(&client, page).await?;
@@ -87,6 +99,12 @@ pub async fn update(pool: &sqlx::Pool<sqlx::Postgres>, start_page: usize) -> Res
             .collect();
 
         let mods = game_mod::batched_insert(&pool, &mods_to_create_or_update).await?;
+
+        if mods.is_empty() {
+            pages_with_no_updates += 1;
+        } else {
+            pages_with_no_updates = 0;
+        }
 
         for db_mod in mods {
             let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
