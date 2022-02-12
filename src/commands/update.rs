@@ -35,9 +35,7 @@ pub async fn update(
         .connect_timeout(CONNECT_TIMEOUT)
         .build()?;
 
-    dbg!(full);
     while has_next_page {
-        dbg!(pages_with_no_updates);
         if !full && pages_with_no_updates >= 50 {
             warn!("No updates found for 50 pages in a row, aborting");
             break;
