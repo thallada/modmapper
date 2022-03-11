@@ -13,7 +13,7 @@ mod plugin_processor;
 
 use commands::{
     download_tiles, dump_cell_data, dump_cell_edit_counts, dump_mod_data, dump_mod_search_index,
-    update,
+    dump_plugin_data, update,
 };
 
 #[derive(FromArgs)]
@@ -42,6 +42,10 @@ struct Args {
     /// file to output all mod titles and ids as a json search index
     #[argh(option, short = 's')]
     mod_search_index: Option<String>,
+
+    /// folder to output all plugin data as json files
+    #[argh(option, short = 'P')]
+    plugin_data: Option<String>,
 
     /// folder to output all map tile images downloaded from the UESP wiki
     #[argh(option, short = 't')]
@@ -72,6 +76,9 @@ pub async fn main() -> Result<()> {
     }
     if let Some(path) = args.mod_search_index {
         return dump_mod_search_index(&pool, &path).await;
+    }
+    if let Some(path) = args.plugin_data {
+        return dump_plugin_data(&pool, &path).await;
     }
     if let Some(dir) = args.download_tiles {
         return download_tiles(&dir).await;

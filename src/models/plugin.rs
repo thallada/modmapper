@@ -37,6 +37,26 @@ pub struct UnsavedPlugin<'a> {
     pub file_path: &'a str,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct PluginWithFileAndMod {
+    pub id: i32,
+    pub name: String,
+    pub hash: i64,
+    pub file_id: i32,
+    pub mod_id: i32,
+    pub version: f64,
+    pub size: i64,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub masters: Vec<String>,
+    pub file_name: String,
+    pub file_path: String,
+    pub updated_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+    pub file: Option<serde_json::Value>,
+    pub r#mod: Option<serde_json::Value>,
+}
+
 #[instrument(level = "debug", skip(pool))]
 pub async fn insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -66,4 +86,32 @@ pub async fn insert<'a>(
     .fetch_one(pool)
     .await
     .context("Failed to insert plugin")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn batched_get_with_file_and_mod(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    page_size: i64,
+    last_id: Option<i32>,
+) -> Result<Vec<PluginWithFileAndMod>> {
+    let last_id = last_id.unwrap_or(0);
+    sqlx::query_as!(
+        PluginWithFileAndMod,
+        "SELECT
+            plugins.*,
+            json_agg(files.*) as file,
+            json_agg(mods.*) as mod
+        FROM plugins
+        LEFT OUTER JOIN files ON files.id = plugins.file_id
+        LEFT OUTER JOIN mods ON mods.id = files.mod_id
+        WHERE plugins.id > $2
+        GROUP BY plugins.id
+        ORDER BY plugins.id ASC
+        LIMIT $1",
+        page_size,
+        last_id
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get with cells")
 }
