@@ -25,7 +25,8 @@ pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str) -> R
     let page_size = 20;
     let mut last_id = None;
     loop {
-        let plugins = plugin::batched_get_with_file_and_mod(&pool, page_size, last_id).await?;
+        let plugins =
+            plugin::batched_get_with_data(&pool, page_size, last_id, "Skyrim.esm", 1).await?;
         if plugins.is_empty() {
             break;
         }
