@@ -38,23 +38,11 @@ pub struct UnsavedPlugin<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct PluginWithData {
-    pub id: i32,
-    pub name: String,
+pub struct PluginsByHashWithMods {
     pub hash: i64,
-    pub file_id: i32,
-    pub mod_id: i32,
-    pub version: f64,
-    pub size: i64,
-    pub author: Option<String>,
-    pub description: Option<String>,
-    pub masters: Vec<String>,
-    pub file_name: String,
-    pub file_path: String,
-    pub updated_at: NaiveDateTime,
-    pub created_at: NaiveDateTime,
-    pub file: Option<serde_json::Value>,
-    pub r#mod: Option<serde_json::Value>,
+    pub plugins: Option<serde_json::Value>,
+    pub files: Option<serde_json::Value>,
+    pub mods: Option<serde_json::Value>,
     pub cells: Option<serde_json::Value>,
 }
 
@@ -90,36 +78,37 @@ pub async fn insert<'a>(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn batched_get_with_data(
+pub async fn batched_get_by_hash_with_mods(
     pool: &sqlx::Pool<sqlx::Postgres>,
     page_size: i64,
-    last_id: Option<i32>,
+    last_hash: Option<i64>,
     master: &str,
     world_id: i32,
-) -> Result<Vec<PluginWithData>> {
-    let last_id = last_id.unwrap_or(0);
+) -> Result<Vec<PluginsByHashWithMods>> {
+    let last_hash = last_hash.unwrap_or(-9223372036854775808); // psql bigint min
     sqlx::query_as!(
-        PluginWithData,
+        PluginsByHashWithMods,
         "SELECT
-            plugins.*,
-            json_agg(DISTINCT files.*) as file,
-            json_agg(DISTINCT mods.*) as mod,
+            plugins.hash,
+            json_agg(DISTINCT plugins.*) as plugins,
+            json_agg(DISTINCT files.*) as files,
+            json_agg(DISTINCT mods.*) as mods,
             COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells
         FROM plugins
         LEFT OUTER JOIN files ON files.id = plugins.file_id
         LEFT OUTER JOIN mods ON mods.id = files.mod_id
         LEFT OUTER JOIN plugin_cells ON plugin_cells.plugin_id = plugins.id
         LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-        WHERE plugins.id > $2
-        GROUP BY plugins.id
-        ORDER BY plugins.id ASC
+        WHERE plugins.hash > $2
+        GROUP BY plugins.hash
+        ORDER BY plugins.hash ASC
         LIMIT $1",
         page_size,
-        last_id,
+        last_hash,
         master,
         world_id
     )
     .fetch_all(pool)
     .await
-    .context("Failed to batch get with data")
+    .context("Failed to batch get by hash with mods")
 }
