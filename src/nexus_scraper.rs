@@ -29,11 +29,16 @@ pub struct ModListScrape<'a> {
 }
 
 #[instrument(skip(client))]
-pub async fn get_mod_list_page(client: &Client, page: usize) -> Result<ModListResponse> {
+pub async fn get_mod_list_page(
+    client: &Client,
+    page: usize,
+    include_translations: bool,
+) -> Result<ModListResponse> {
     let res = client
         .get(format!(
-            "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,include_adult:true,page_size:20,show_game_filter:false,open:false,page:{},sort_by:lastupdate",
+            "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,tags_{}%5B%5D:1428,include_adult:true,page_size:20,show_game_filter:false,open:false,page:{},sort_by:lastupdate",
             GAME_ID,
+            match include_translations { true => "yes", false => "no" },
             page
         ))
         .send()

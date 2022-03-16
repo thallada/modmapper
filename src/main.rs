@@ -12,8 +12,8 @@ mod nexus_scraper;
 mod plugin_processor;
 
 use commands::{
-    download_tiles, dump_cell_data, dump_cell_edit_counts, dump_mod_data, dump_mod_search_index,
-    dump_plugin_data, update,
+    backfills::backfill_is_translation, download_tiles, dump_cell_data, dump_cell_edit_counts,
+    dump_mod_data, dump_mod_search_index, dump_plugin_data, update,
 };
 
 #[derive(FromArgs)]
@@ -23,7 +23,7 @@ struct Args {
     /// the page number to start scraping for mods on nexus mods
     page: usize,
 
-    #[argh(option, short = 'f', default = "false")]
+    #[argh(switch, short = 'f')]
     /// enable full scrape of all pages, rather than stopping after 50 pages of no updates
     full: bool,
 
@@ -50,6 +50,10 @@ struct Args {
     /// folder to output all map tile images downloaded from the UESP wiki
     #[argh(option, short = 't')]
     download_tiles: Option<String>,
+
+    /// backfill the is_translation column in the mods table
+    #[argh(switch)]
+    backfill_is_translation: bool,
 }
 
 #[tokio::main]
@@ -82,6 +86,9 @@ pub async fn main() -> Result<()> {
     }
     if let Some(dir) = args.download_tiles {
         return download_tiles(&dir).await;
+    }
+    if args.backfill_is_translation {
+        return backfill_is_translation(&pool).await;
     }
 
     return update(&pool, args.page, args.full).await;

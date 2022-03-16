@@ -1,3 +1,4 @@
+pub mod backfills;
 pub mod download_tiles;
 pub mod dump_cell_data;
 pub mod dump_cell_edit_counts;

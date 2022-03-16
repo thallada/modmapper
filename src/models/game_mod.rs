@@ -20,6 +20,7 @@ pub struct Mod {
     pub description: Option<String>,
     pub thumbnail_link: Option<String>,
     pub game_id: i32,
+    pub is_translation: bool,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
     pub last_update_at: NaiveDateTime,
@@ -38,6 +39,7 @@ pub struct UnsavedMod<'a> {
     pub description: Option<&'a str>,
     pub thumbnail_link: Option<&'a str>,
     pub game_id: i32,
+    pub is_translation: bool,
     pub last_update_at: NaiveDateTime,
     pub first_upload_at: NaiveDateTime,
 }
@@ -61,6 +63,7 @@ pub struct ModWithCells {
     pub description: Option<String>,
     pub thumbnail_link: Option<String>,
     pub game_id: i32,
+    pub is_translation: bool,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
     pub last_update_at: NaiveDateTime,
@@ -123,17 +126,18 @@ pub async fn insert(
     description: Option<&str>,
     thumbnail_link: Option<&str>,
     game_id: i32,
+    is_translation: bool,
     last_update_at: NaiveDateTime,
     first_upload_at: NaiveDateTime,
 ) -> Result<Mod> {
     sqlx::query_as!(
         Mod,
         "INSERT INTO mods
-            (name, nexus_mod_id, author_name, author_id, category_name, category_id, description, thumbnail_link, game_id, last_update_at, first_upload_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
+            (name, nexus_mod_id, author_name, author_id, category_name, category_id, description, thumbnail_link, game_id, is_translation, last_update_at, first_upload_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now())
             ON CONFLICT (game_id, nexus_mod_id) DO UPDATE
-            SET (name, author_name, author_id, category_name, category_id, description, thumbnail_link, last_update_at, first_upload_at, updated_at) =
-            (EXCLUDED.name, EXCLUDED.author_name, EXCLUDED.author_id, EXCLUDED.category_name, EXCLUDED.category_id, EXCLUDED.description, EXCLUDED.thumbnail_link, EXCLUDED.last_update_at, EXCLUDED.first_upload_at, now())
+            SET (name, author_name, author_id, category_name, category_id, description, thumbnail_link, is_translation, last_update_at, first_upload_at, updated_at) =
+            (EXCLUDED.name, EXCLUDED.author_name, EXCLUDED.author_id, EXCLUDED.category_name, EXCLUDED.category_id, EXCLUDED.description, EXCLUDED.thumbnail_link, EXCLUDED.is_translation, EXCLUDED.last_update_at, EXCLUDED.first_upload_at, now())
             RETURNING *",
         name,
         nexus_mod_id,
@@ -144,6 +148,7 @@ pub async fn insert(
         description,
         thumbnail_link,
         game_id,
+        is_translation,
         last_update_at,
         first_upload_at
     )
@@ -168,6 +173,7 @@ pub async fn batched_insert<'a>(
         let mut descriptions: Vec<Option<&str>> = vec![];
         let mut thumbnail_links: Vec<Option<&str>> = vec![];
         let mut game_ids: Vec<i32> = vec![];
+        let mut is_translations: Vec<bool> = vec![];
         let mut last_update_ats: Vec<NaiveDateTime> = vec![];
         let mut first_upload_ats: Vec<NaiveDateTime> = vec![];
         batch.iter().for_each(|unsaved_mod| {
@@ -180,6 +186,7 @@ pub async fn batched_insert<'a>(
             descriptions.push(unsaved_mod.description);
             thumbnail_links.push(unsaved_mod.thumbnail_link);
             game_ids.push(unsaved_mod.game_id);
+            is_translations.push(unsaved_mod.is_translation);
             last_update_ats.push(unsaved_mod.last_update_at);
             first_upload_ats.push(unsaved_mod.first_upload_at);
         });
@@ -187,12 +194,12 @@ pub async fn batched_insert<'a>(
             // sqlx doesn't understand arrays of Options with the query_as! macro
             &mut sqlx::query_as(
                 r#"INSERT INTO mods
-                (name, nexus_mod_id, author_name, author_id, category_name, category_id, description, thumbnail_link, game_id, last_update_at, first_upload_at, created_at, updated_at)
+                (name, nexus_mod_id, author_name, author_id, category_name, category_id, description, thumbnail_link, game_id, is_translation, last_update_at, first_upload_at, created_at, updated_at)
                 SELECT *, now(), now()
-                FROM UNNEST($1::text[], $2::int[], $3::text[], $4::int[], $5::text[], $6::int[], $7::text[], $8::text[], $9::int[], $10::timestamp(3)[], $11::timestamp(3)[])
+                FROM UNNEST($1::text[], $2::int[], $3::text[], $4::int[], $5::text[], $6::int[], $7::text[], $8::text[], $9::int[], $10::bool[], $11::timestamp(3)[], $12::timestamp(3)[])
                 ON CONFLICT (game_id, nexus_mod_id) DO UPDATE
-                SET (name, author_name, author_id, category_name, category_id, description, thumbnail_link, last_update_at, first_upload_at, updated_at) =
-                (EXCLUDED.name, EXCLUDED.author_name, EXCLUDED.author_id, EXCLUDED.category_name, EXCLUDED.category_id, EXCLUDED.description, EXCLUDED.thumbnail_link, EXCLUDED.last_update_at, EXCLUDED.first_upload_at, now())
+                SET (name, author_name, author_id, category_name, category_id, description, thumbnail_link, is_translation, last_update_at, first_upload_at, updated_at) =
+                (EXCLUDED.name, EXCLUDED.author_name, EXCLUDED.author_id, EXCLUDED.category_name, EXCLUDED.category_id, EXCLUDED.description, EXCLUDED.thumbnail_link, EXCLUDED.is_translation, EXCLUDED.last_update_at, EXCLUDED.first_upload_at, now())
                 RETURNING *"#,
             )
             .bind(&names)
@@ -204,6 +211,7 @@ pub async fn batched_insert<'a>(
             .bind(&descriptions)
             .bind(&thumbnail_links)
             .bind(&game_ids)
+            .bind(&is_translations)
             .bind(&last_update_ats)
             .bind(&first_upload_ats)
             .fetch_all(pool)
@@ -238,18 +246,6 @@ pub async fn update_last_updated_files_at(
     .fetch_one(pool)
     .await
     .context("Failed to update mod")
-}
-
-#[instrument(level = "debug", skip(pool))]
-pub async fn bulk_get_need_backfill(pool: &sqlx::Pool<sqlx::Postgres>) -> Result<Vec<Mod>> {
-    sqlx::query_as!(
-        Mod,
-        "SELECT * FROM mods
-            WHERE author_id IS NULL"
-    )
-    .fetch_all(pool)
-    .await
-    .context("Failed to bulk get need backfill")
 }
 
 #[instrument(level = "debug", skip(pool, game_mod, mod_data))]

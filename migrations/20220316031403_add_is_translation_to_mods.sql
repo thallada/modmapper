@@ -1,0 +1,1 @@
+ALTER TABLE "mods" ADD COLUMN "is_translation" BOOL NOT NULL DEFAULT FALSE;
