@@ -398,8 +398,8 @@ pub async fn batched_get_cell_counts(
             mods.nexus_mod_id,
             COUNT(DISTINCT cells.*) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4) AS cells
         FROM mods
-        INNER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
-        INNER JOIN cells ON cells.id = plugin_cells.cell_id
+        LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
+        LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
         WHERE mods.nexus_mod_id > $2
         GROUP BY mods.nexus_mod_id
         ORDER BY mods.nexus_mod_id ASC
