@@ -72,6 +72,12 @@ pub struct ModWithCells {
     pub cells: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ModCellCount {
+    pub nexus_mod_id: i32,
+    pub cells: Option<i64>,
+}
+
 #[instrument(level = "debug", skip(pool))]
 pub async fn get_by_nexus_mod_id(
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -375,4 +381,35 @@ pub async fn batched_get_with_cells(
     .fetch_all(pool)
     .await
     .context("Failed to batch get with cells")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn batched_get_cell_counts(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    page_size: i64,
+    last_id: Option<i32>,
+    master: &str,
+    world_id: i32,
+) -> Result<Vec<ModCellCount>> {
+    let last_id = last_id.unwrap_or(0);
+    sqlx::query_as!(
+        ModCellCount,
+        "SELECT
+            mods.nexus_mod_id,
+            COUNT(DISTINCT cells.*) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4) AS cells
+        FROM mods
+        INNER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
+        INNER JOIN cells ON cells.id = plugin_cells.cell_id
+        WHERE mods.nexus_mod_id > $2
+        GROUP BY mods.nexus_mod_id
+        ORDER BY mods.nexus_mod_id ASC
+        LIMIT $1",
+        page_size,
+        last_id,
+        master,
+        world_id
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get mod cell counts")
 }
