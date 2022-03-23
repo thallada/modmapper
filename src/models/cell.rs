@@ -39,7 +39,6 @@ pub struct CellData {
     pub files_count: Option<i64>,
     pub mods_count: Option<i64>,
     pub mods: Option<serde_json::Value>,
-    pub mod_cell_count: Option<serde_json::Value>,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -163,24 +162,12 @@ pub async fn get_cell_data(
                 COUNT(DISTINCT plugins.id) as plugins_count,
                 COUNT(DISTINCT files.id) as files_count,
                 COUNT(DISTINCT mods.id) as mods_count,
-                json_agg(DISTINCT mods.*) as mods,
-                json_agg(DISTINCT mod_cell_counts.*) as mod_cell_count
+                json_agg(DISTINCT mods.*) as mods
             FROM cells
             JOIN plugin_cells on cells.id = cell_id
             JOIN plugins ON plugins.id = plugin_id
             JOIN files ON files.id = plugins.file_id
             JOIN mods ON mods.id = files.mod_id
-            CROSS JOIN LATERAL (
-                SELECT
-                    m.id,
-                    COUNT(cells.*) FILTER (WHERE mod_cells.x IS NOT NULL AND mod_cells.y IS NOT NULL AND mod_cells.master = $1 AND mod_cells.world_id = $2) AS cell_count
-                FROM mods m
-                LEFT OUTER JOIN plugin_cells mod_plugin_cells ON mod_plugin_cells.mod_id = m.id
-                LEFT OUTER JOIN cells mod_cells ON mod_cells.id = mod_plugin_cells.cell_id
-                WHERE m.id = mods.id
-                GROUP BY m.id
-                ORDER BY m.id ASC
-            ) mod_cell_counts
             WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 and cells.y = $4
             GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
         master,
