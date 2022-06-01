@@ -13,7 +13,7 @@ mod plugin_processor;
 
 use commands::{
     backfills::backfill_is_translation, download_tiles, dump_cell_data, dump_cell_edit_counts,
-    dump_mod_cell_counts, dump_mod_data, dump_mod_search_index, dump_plugin_data, update,
+    dump_mod_cell_counts, dump_mod_data, dump_mod_search_index, dump_plugin_data, dump_file_data, update,
 };
 
 #[derive(FromArgs)]
@@ -50,6 +50,10 @@ struct Args {
     /// folder to output all plugin data as json files
     #[argh(option, short = 'P')]
     plugin_data: Option<String>,
+
+    /// folder to output all files data as json files
+    #[argh(option, short = 'F')]
+    file_data: Option<String>,
 
     /// folder to output all map tile images downloaded from the UESP wiki
     #[argh(option, short = 't')]
@@ -90,6 +94,9 @@ pub async fn main() -> Result<()> {
     }
     if let Some(path) = args.plugin_data {
         return dump_plugin_data(&pool, &path).await;
+    }
+    if let Some(path) = args.file_data {
+        return dump_file_data(&pool, &path).await;
     }
     if let Some(dir) = args.download_tiles {
         return download_tiles(&dir).await;

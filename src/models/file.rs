@@ -23,6 +23,29 @@ pub struct File {
     pub unable_to_extract_plugins: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileWithCells {
+    pub id: i32,
+    pub name: String,
+    pub file_name: String,
+    pub nexus_file_id: i32,
+    pub mod_id: i32,
+    pub category: Option<String>,
+    pub version: Option<String>,
+    pub mod_version: Option<String>,
+    pub size: i64,
+    pub uploaded_at: NaiveDateTime,
+    pub has_download_link: bool,
+    pub updated_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+    pub downloaded_at: Option<NaiveDateTime>,
+    pub has_plugin: bool,
+    pub unable_to_extract_plugins: bool,
+    pub cells: Option<serde_json::Value>,
+    pub plugins: Option<serde_json::Value>,
+    pub plugin_count: Option<i64>,
+}
+
 #[derive(Debug)]
 pub struct UnsavedFile<'a> {
     pub name: &'a str,
@@ -173,4 +196,38 @@ pub async fn update_unable_to_extract_plugins(
     .fetch_one(pool)
     .await
     .context("Failed to update file")
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn batched_get_with_cells(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    page_size: i64,
+    last_id: Option<i32>,
+    master: &str,
+    world_id: i32,
+) -> Result<Vec<FileWithCells>> {
+    let last_id = last_id.unwrap_or(0);
+    sqlx::query_as!(
+        FileWithCells,
+        "SELECT
+            files.*,
+            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
+            COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_name', plugins.file_name)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+            COUNT(plugins.*) AS plugin_count
+        FROM files
+        LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
+        LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
+        LEFT OUTER JOIN plugins ON plugins.file_id = files.id
+        WHERE files.id > $2
+        GROUP BY files.id
+        ORDER BY files.id ASC
+        LIMIT $1",
+        page_size,
+        last_id,
+        master,
+        world_id
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get with cells")
 }
