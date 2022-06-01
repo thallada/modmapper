@@ -70,6 +70,9 @@ pub struct ModWithCells {
     pub first_upload_at: NaiveDateTime,
     pub last_updated_files_at: Option<NaiveDateTime>,
     pub cells: Option<serde_json::Value>,
+    pub files: Option<serde_json::Value>,
+    pub file_count: Option<i64>,
+    pub plugin_count: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -365,10 +368,15 @@ pub async fn batched_get_with_cells(
         ModWithCells,
         "SELECT
             mods.*,
-            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells
+            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
+            COALESCE(json_agg(DISTINCT jsonb_build_object('id', files.nexus_file_id, 'name', files.name, 'version', files.version, 'category', files.category)) FILTER (WHERE files.nexus_file_id IS NOT NULL), '[]') AS files,
+            COUNT(files.*) AS file_count,
+            COUNT(plugins.*) AS plugin_count
         FROM mods
         LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
         LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
+        LEFT OUTER JOIN files ON files.mod_id = mods.id
+        LEFT OUTER JOIN plugins ON plugins.mod_id = mods.id
         WHERE mods.id > $2
         GROUP BY mods.id
         ORDER BY mods.id ASC
