@@ -9,19 +9,19 @@ mkdir -p mods
 mkdir -p files
 mkdir -p plugins_data
 if [ -n "$last_update_time" ]; then
-    ./target/release/mod-mapper -e cells/edits.json
-    ./target/release/mod-mapper -c cells
-    ./target/release/mod-mapper -s mods/mod_search_index.json
-    ./target/release/mod-mapper -M mods/mod_cell_counts.json
-    ./target/release/mod-mapper -m mods -u "$last_update_time"
-    ./target/release/mod-mapper -P plugins_data -u "$last_update_time"
-    ./target/release/mod-mapper -F files -u "$last_update_time"
+    ./target/release/mod-mapper -e cells/edits.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -c cells &>> logs/modmapper.log
+    ./target/release/mod-mapper -s mods/mod_search_index.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -M mods/mod_cell_counts.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -m mods -u "$last_update_time" &>> logs/modmapper.log
+    ./target/release/mod-mapper -P plugins_data -u "$last_update_time" &>> logs/modmapper.log
+    ./target/release/mod-mapper -F files -u "$last_update_time" &>> logs/modmapper.log
 else
-    ./target/release/mod-mapper -e cells/edits.json
-    ./target/release/mod-mapper -c cells
-    ./target/release/mod-mapper -s mods/mod_search_index.json
-    ./target/release/mod-mapper -M mods/mod_cell_counts.json
-    ./target/release/mod-mapper -m mods
-    ./target/release/mod-mapper -P plugins_data
-    ./target/release/mod-mapper -F files
+    ./target/release/mod-mapper -e cells/edits.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -c cells &>> logs/modmapper.log
+    ./target/release/mod-mapper -s mods/mod_search_index.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -M mods/mod_cell_counts.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -m mods &>> logs/modmapper.log
+    ./target/release/mod-mapper -P plugins_data &>> logs/modmapper.log
+    ./target/release/mod-mapper -F files &>> logs/modmapper.log
 fi
