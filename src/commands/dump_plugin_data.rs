@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::NaiveDateTime;
 use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::path::Path;
@@ -21,12 +22,12 @@ fn format_radix(mut x: u64, radix: u32) -> String {
     result.into_iter().rev().collect()
 }
 
-pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str) -> Result<()> {
+pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, updated_after: Option<NaiveDateTime>) -> Result<()> {
     let page_size = 20;
     let mut last_hash = None;
     loop {
         let plugins =
-            plugin::batched_get_by_hash_with_mods(pool, page_size, last_hash, "Skyrim.esm", 1).await?;
+            plugin::batched_get_by_hash_with_mods(pool, page_size, last_hash, "Skyrim.esm", 1, updated_after).await?;
         if plugins.is_empty() {
             break;
         }

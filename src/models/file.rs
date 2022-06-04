@@ -205,29 +205,57 @@ pub async fn batched_get_with_cells(
     last_id: Option<i32>,
     master: &str,
     world_id: i32,
+    updated_after: Option<NaiveDateTime>,
 ) -> Result<Vec<FileWithCells>> {
     let last_id = last_id.unwrap_or(0);
-    sqlx::query_as!(
-        FileWithCells,
-        "SELECT
-            files.*,
-            COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-            COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_name', plugins.file_name)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
-            COUNT(plugins.*) AS plugin_count
-        FROM files
-        LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
-        LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-        LEFT OUTER JOIN plugins ON plugins.file_id = files.id
-        WHERE files.id > $2
-        GROUP BY files.id
-        ORDER BY files.id ASC
-        LIMIT $1",
-        page_size,
-        last_id,
-        master,
-        world_id
-    )
-    .fetch_all(pool)
-    .await
-    .context("Failed to batch get with cells")
+    if let Some(updated_after) = updated_after {
+        sqlx::query_as!(
+            FileWithCells,
+            "SELECT
+                files.*,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_name', plugins.file_name)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+                COUNT(plugins.*) AS plugin_count
+            FROM files
+            LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
+            LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
+            LEFT OUTER JOIN plugins ON plugins.file_id = files.id
+            WHERE files.id > $2 AND files.updated_at > $5
+            GROUP BY files.id
+            ORDER BY files.id ASC
+            LIMIT $1",
+            page_size,
+            last_id,
+            master,
+            world_id,
+            updated_after
+        )
+        .fetch_all(pool)
+        .await
+        .context("Failed to batch get with cells")
+    } else {
+        sqlx::query_as!(
+            FileWithCells,
+            "SELECT
+                files.*,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_name', plugins.file_name)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+                COUNT(plugins.*) AS plugin_count
+            FROM files
+            LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
+            LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
+            LEFT OUTER JOIN plugins ON plugins.file_id = files.id
+            WHERE files.id > $2
+            GROUP BY files.id
+            ORDER BY files.id ASC
+            LIMIT $1",
+            page_size,
+            last_id,
+            master,
+            world_id
+        )
+        .fetch_all(pool)
+        .await
+        .context("Failed to batch get with cells")
+    }
 }

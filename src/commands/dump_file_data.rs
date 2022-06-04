@@ -1,16 +1,17 @@
 use anyhow::Result;
+use chrono::NaiveDateTime;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
 use crate::models::file;
 
-pub async fn dump_file_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str) -> Result<()> {
+pub async fn dump_file_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, updated_after: Option<NaiveDateTime>) -> Result<()> {
     let page_size = 20;
     let mut last_id = None;
     loop {
         let files =
-            file::batched_get_with_cells(&pool, page_size, last_id, "Skyrim.esm", 1).await?;
+            file::batched_get_with_cells(&pool, page_size, last_id, "Skyrim.esm", 1, updated_after).await?;
         if files.is_empty() {
             break;
         }

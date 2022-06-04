@@ -1,5 +1,6 @@
 use anyhow::Result;
 use argh::FromArgs;
+use chrono::NaiveDateTime;
 use dotenv::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -62,6 +63,10 @@ struct Args {
     /// backfill the is_translation column in the mods table
     #[argh(switch)]
     backfill_is_translation: bool,
+
+    /// when dumping data, only dump data for mods or files that have been updated since this date
+    #[argh(option, short = 'u')]
+    updated_after: Option<NaiveDateTime>,
 }
 
 #[tokio::main]
@@ -84,7 +89,7 @@ pub async fn main() -> Result<()> {
         return dump_cell_data(&pool, &dir).await;
     }
     if let Some(dir) = args.mod_data {
-        return dump_mod_data(&pool, &dir).await;
+        return dump_mod_data(&pool, &dir, args.updated_after).await;
     }
     if let Some(path) = args.mod_search_index {
         return dump_mod_search_index(&pool, &path).await;
@@ -93,10 +98,10 @@ pub async fn main() -> Result<()> {
         return dump_mod_cell_counts(&pool, &path).await;
     }
     if let Some(path) = args.plugin_data {
-        return dump_plugin_data(&pool, &path).await;
+        return dump_plugin_data(&pool, &path, args.updated_after).await;
     }
     if let Some(path) = args.file_data {
-        return dump_file_data(&pool, &path).await;
+        return dump_file_data(&pool, &path, args.updated_after).await;
     }
     if let Some(dir) = args.download_tiles {
         return download_tiles(&dir).await;
