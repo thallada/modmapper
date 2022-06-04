@@ -3,6 +3,7 @@ use reqwest::Client;
 use std::fs::File;
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing::info;
 
 pub async fn download_tiles(dir: &str) -> Result<()> {
     let client = Client::builder().build()?;
@@ -18,7 +19,7 @@ pub async fn download_tiles(dir: &str) -> Result<()> {
                 );
                 let resp = client.get(&url).send().await?;
                 if resp.status().is_success() {
-                    println!("{}", url);
+                    info!(z = z, x = x, y = y, "fetched tile from {}", url);
                     std::fs::create_dir_all(format!("{}/{z}/{x}", dir, z = z, x = x))?;
                     let mut out =
                         File::create(format!("{}/{z}/{x}/{y}.jpg", dir, z = z, x = x, y = y))?;

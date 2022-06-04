@@ -3,6 +3,7 @@ use chrono::NaiveDateTime;
 use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::path::Path;
+use tracing::info;
 
 use crate::models::plugin;
 
@@ -23,6 +24,7 @@ fn format_radix(mut x: u64, radix: u32) -> String {
 }
 
 pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, updated_after: Option<NaiveDateTime>) -> Result<()> {
+    let mut page: u32 = 1;
     let page_size = 20;
     let mut last_hash = None;
     loop {
@@ -35,10 +37,12 @@ pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, upda
             let path = Path::new(&dir);
             create_dir_all(&path)?;
             let path = path.join(format!("{}.json", format_radix(plugin.hash as u64, 36)));
+            info!(page = page, hash = plugin.hash, "dumping plugin data to {}", path.display());
             let mut file = File::create(path)?;
             write!(file, "{}", serde_json::to_string(&plugin)?)?;
             last_hash = Some(plugin.hash);
         }
+        page += 1;
     }
     Ok(())
 }
