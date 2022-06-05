@@ -52,7 +52,7 @@ pub struct ModForSearch {
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct ModWithCells {
+pub struct ModWithCellsAndFiles {
     pub id: i32,
     pub name: String,
     pub nexus_mod_id: i32,
@@ -71,7 +71,6 @@ pub struct ModWithCells {
     pub last_updated_files_at: Option<NaiveDateTime>,
     pub cells: Option<serde_json::Value>,
     pub files: Option<serde_json::Value>,
-    pub file_count: Option<i64>,
     pub plugin_count: Option<i64>,
 }
 
@@ -79,6 +78,24 @@ pub struct ModWithCells {
 pub struct ModCellCount {
     pub nexus_mod_id: i32,
     pub cells: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ModCells {
+    pub mod_id: i32,
+    pub cells: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ModFiles {
+    pub mod_id: i32,
+    pub files: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ModPluginCount {
+    pub mod_id: i32,
+    pub plugin_count: Option<i64>,
 }
 
 #[instrument(level = "debug", skip(pool))]
@@ -356,69 +373,136 @@ pub async fn batched_get_for_search(
 }
 
 #[instrument(level = "debug", skip(pool))]
-pub async fn batched_get_with_cells(
+pub async fn batched_get_with_cells_and_files(
     pool: &sqlx::Pool<sqlx::Postgres>,
     page_size: i64,
     last_id: Option<i32>,
     master: &str,
     world_id: i32,
     updated_after: Option<NaiveDateTime>,
-) -> Result<Vec<ModWithCells>> {
+) -> Result<Vec<ModWithCellsAndFiles>> {
     let last_id = last_id.unwrap_or(0);
-    if let Some(updated_after) = updated_after {
+    let mods = if let Some(updated_after) = updated_after {
         sqlx::query_as!(
-            ModWithCells,
+            Mod,
             "SELECT
-                mods.*,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('id', files.nexus_file_id, 'name', files.name, 'version', files.version, 'category', files.category)) FILTER (WHERE files.nexus_file_id IS NOT NULL), '[]') AS files,
-                COUNT(files.*) AS file_count,
-                COUNT(plugins.*) AS plugin_count
+                mods.*
             FROM mods
-            LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
-            LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-            LEFT OUTER JOIN files ON files.mod_id = mods.id
-            LEFT OUTER JOIN plugins ON plugins.mod_id = mods.id
-            WHERE mods.id > $2 AND mods.updated_at > $5
+            WHERE mods.id > $2 AND mods.updated_at > $3
             GROUP BY mods.id
             ORDER BY mods.id ASC
             LIMIT $1",
             page_size,
             last_id,
-            master,
-            world_id,
             updated_after
         )
         .fetch_all(pool)
         .await
-        .context("Failed to batch get with cells")
+        .context("Failed to batch get mods")?
     } else {
         sqlx::query_as!(
-            ModWithCells,
+            Mod,
             "SELECT
-                mods.*,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('id', files.nexus_file_id, 'name', files.name, 'version', files.version, 'category', files.category)) FILTER (WHERE files.nexus_file_id IS NOT NULL), '[]') AS files,
-                COUNT(files.*) AS file_count,
-                COUNT(plugins.*) AS plugin_count
+                mods.*
             FROM mods
-            LEFT OUTER JOIN plugin_cells ON plugin_cells.mod_id = mods.id
-            LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-            LEFT OUTER JOIN files ON files.mod_id = mods.id
-            LEFT OUTER JOIN plugins ON plugins.mod_id = mods.id
             WHERE mods.id > $2
             GROUP BY mods.id
             ORDER BY mods.id ASC
             LIMIT $1",
             page_size,
-            last_id,
-            master,
-            world_id
+            last_id
         )
         .fetch_all(pool)
         .await
-        .context("Failed to batch get with cells")
-    }
+        .context("Failed to batch get mods")?
+    };
+    let mod_ids = mods.iter().map(|m| m.id).collect::<Vec<i32>>();
+    let mod_cells = sqlx::query_as!(
+        ModCells,
+        "SELECT
+            plugin_cells.mod_id AS mod_id,
+            json_agg(DISTINCT jsonb_build_object('x', x, 'y', y)) AS cells
+        FROM plugin_cells
+        LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
+        WHERE
+            plugin_cells.mod_id = ANY($1::int[]) AND
+            cells.x IS NOT NULL AND
+            cells.y IS NOT NULL AND
+            cells.master = $2 AND
+            cells.world_id = $3
+        GROUP BY plugin_cells.mod_id",
+        &mod_ids,
+        master,
+        world_id
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get mod cells")?;
+    let mod_files = sqlx::query_as!(
+        ModFiles,
+        "SELECT
+            files.mod_id AS mod_id,
+            json_agg(jsonb_build_object('nexus_file_id', nexus_file_id, 'name', name, 'version', version, 'category', category)) AS files
+        FROM files
+        WHERE
+            files.mod_id = ANY($1::int[])
+        GROUP BY files.mod_id",
+        &mod_ids,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get mod files")?;
+    let plugins_count = sqlx::query_as!(
+        ModPluginCount,
+        "SELECT
+            mod_id,
+            COUNT(*) as plugin_count
+        FROM plugins
+        WHERE
+            mod_id = ANY($1::int[])
+        GROUP BY mod_id",
+        &mod_ids,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to batch get mod files")?;
+
+    Ok(mods.into_iter().map(|m| {
+        let id = m.id;
+        ModWithCellsAndFiles {
+            id: m.id,
+            name: m.name,
+            nexus_mod_id: m.nexus_mod_id,
+            author_name: m.author_name,
+            author_id: m.author_id,
+            category_name: m.category_name,
+            category_id: m.category_id,
+            description: m.description,
+            thumbnail_link: m.thumbnail_link,
+            game_id: m.game_id,
+            is_translation: m.is_translation,
+            updated_at: m.updated_at,
+            created_at: m.created_at,
+            last_update_at: m.last_update_at,
+            first_upload_at: m.first_upload_at,
+            last_updated_files_at: m.last_updated_files_at,
+            cells: mod_cells
+                .iter()
+                .find(|c| c.mod_id == id)
+                .map(|c| c.cells.clone())
+                .unwrap_or_else(|| Some(serde_json::Value::Array(vec![]))),
+            files: mod_files
+                .iter()
+                .find(|f| f.mod_id == id)
+                .map(|f| f.files.clone())
+                .unwrap_or_else(|| Some(serde_json::Value::Array(vec![]))),
+            plugin_count: plugins_count
+                .iter()
+                .find(|p| p.mod_id == id)
+                .map(|p| p.plugin_count)
+                .unwrap_or(Some(0)),
+        }
+    }).collect())
 }
 
 #[instrument(level = "debug", skip(pool))]

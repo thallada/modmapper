@@ -13,7 +13,7 @@ pub async fn dump_mod_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, updated
     let mut last_id = None;
     loop {
         let mods =
-            game_mod::batched_get_with_cells(&pool, page_size, last_id, "Skyrim.esm", 1, updated_after).await?;
+            game_mod::batched_get_with_cells_and_files(&pool, page_size, last_id, "Skyrim.esm", 1, updated_after).await?;
         if mods.is_empty() {
             break;
         }
