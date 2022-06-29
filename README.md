@@ -43,3 +43,14 @@ NEXUS_API_KEY=...
 ```
 
 7. Either run `cargo run` for development mode, or build the release binary with `cargo build --release`, which will get saved to `target/release/`.
+
+## Sync and Backup Setup
+
+`scripts/sync.sh` and `scripts/backup.sh` both utilize [`rclone`](https://rclone.org) to transfer files that are generated on the machine running modmapper to separate servers for file storage.
+
+For these scripts to run successfully you will need to install rclone and setup a remote for `sync.sh` (the "static server") and a remote for `backup.sh` (the "backup server"). Remotes can be created with the `rclone config` command. Then, make sure these variables are defined in the `.env` file corresponding to the remote names and buckets (or folders) within that remote you created:
+
+- `STATIC_SERVER_REMOTE`
+- `STATIC_SERVER_BUCKET`
+- `BACKUP_SERVER_REMOTE`
+- `BACKUP_SERVER_BUCKET`

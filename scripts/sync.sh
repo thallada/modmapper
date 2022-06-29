@@ -1,6 +1,6 @@
 #!/bin/bash
 export $(grep -v '^#' .env | xargs -d '\n')
-rsync -raz -e "ssh -p ${STATIC_SERVER_PORT}" cells ${STATIC_SERVER_USER}@${STATIC_SERVER_HOST}:/srv/
-rsync -raz -e "ssh -p ${STATIC_SERVER_PORT}" mods ${STATIC_SERVER_USER}@${STATIC_SERVER_HOST}:/srv/
-rsync -raz -e "ssh -p ${STATIC_SERVER_PORT}" plugins_data ${STATIC_SERVER_USER}@${STATIC_SERVER_HOST}:/srv/
-rsync -raz -e "ssh -p ${STATIC_SERVER_PORT}" files ${STATIC_SERVER_USER}@${STATIC_SERVER_HOST}:/srv/
+rclone sync --fast-list --checksum cells ${STATIC_SERVER_REMOTE}:${STATIC_SERVER_BUCKET}/cells
+rclone sync --fast-list --checksum mods ${STATIC_SERVER_REMOTE}:${STATIC_SERVER_BUCKET}/mods
+rclone sync --fast-list --checksum plugins_data ${STATIC_SERVER_REMOTE}:${STATIC_SERVER_BUCKET}/plugins_data
+rclone sync --fast-list --checksum files ${STATIC_SERVER_REMOTE}:${STATIC_SERVER_BUCKET}/files
