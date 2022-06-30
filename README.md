@@ -51,6 +51,9 @@ NEXUS_API_KEY=...
 For these scripts to run successfully you will need to install rclone and setup a remote for `sync.sh` (the "static server") and a remote for `backup.sh` (the "backup server"). Remotes can be created with the `rclone config` command. Then, make sure these variables are defined in the `.env` file corresponding to the remote names and buckets (or folders) within that remote you created:
 
 - `STATIC_SERVER_REMOTE`
-- `STATIC_SERVER_BUCKET`
+- `STATIC_SERVER_CELLS_BUCKET`
+- `STATIC_SERVER_MODS_BUCKET`
+- `STATIC_SERVER_PLUGINS_BUCKET`
+- `STATIC_SERVER_FILES_BUCKET`
 - `BACKUP_SERVER_REMOTE`
 - `BACKUP_SERVER_BUCKET`
