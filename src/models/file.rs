@@ -214,7 +214,7 @@ pub async fn batched_get_with_cells(
             "SELECT
                 files.*,
                 COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_name', plugins.file_name)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_path', plugins.file_path)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
                 COUNT(plugins.*) AS plugin_count
             FROM files
             LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
@@ -239,7 +239,7 @@ pub async fn batched_get_with_cells(
             "SELECT
                 files.*,
                 COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_name', plugins.file_name)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_path', plugins.file_path)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
                 COUNT(plugins.*) AS plugin_count
             FROM files
             LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
