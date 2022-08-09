@@ -2,12 +2,16 @@ use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use sqlx::types::Json;
 use tracing::instrument;
+
+use super::hash_to_string;
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Plugin {
     pub id: i32,
     pub name: String,
+    #[serde(serialize_with = "hash_to_string")]
     pub hash: i64,
     pub file_id: i32,
     pub mod_id: i32,
@@ -39,8 +43,9 @@ pub struct UnsavedPlugin<'a> {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct PluginsByHashWithMods {
+    #[serde(serialize_with = "hash_to_string")]
     pub hash: i64,
-    pub plugins: Option<serde_json::Value>,
+    pub plugins: Option<Json<Vec<Plugin>>>,
     pub files: Option<serde_json::Value>,
     pub mods: Option<serde_json::Value>,
     pub cells: Option<serde_json::Value>,
@@ -90,9 +95,9 @@ pub async fn batched_get_by_hash_with_mods(
     if let Some(updated_after) = updated_after {
         sqlx::query_as!(
             PluginsByHashWithMods,
-            "SELECT
+            r#"SELECT
                 plugins.hash,
-                json_agg(DISTINCT plugins.*) as plugins,
+                json_agg(DISTINCT plugins.*) as "plugins: Json<Vec<Plugin>>",
                 json_agg(DISTINCT files.*) as files,
                 json_agg(DISTINCT mods.*) as mods,
                 COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells
@@ -104,7 +109,7 @@ pub async fn batched_get_by_hash_with_mods(
             WHERE plugins.hash > $2 AND plugins.updated_at > $5
             GROUP BY plugins.hash
             ORDER BY plugins.hash ASC
-            LIMIT $1",
+            LIMIT $1"#,
             page_size,
             last_hash,
             master,
@@ -117,9 +122,9 @@ pub async fn batched_get_by_hash_with_mods(
     } else {
         sqlx::query_as!(
             PluginsByHashWithMods,
-            "SELECT
+            r#"SELECT
                 plugins.hash,
-                json_agg(DISTINCT plugins.*) as plugins,
+                json_agg(DISTINCT plugins.*) as "plugins: Json<Vec<Plugin>>",
                 json_agg(DISTINCT files.*) as files,
                 json_agg(DISTINCT mods.*) as mods,
                 COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells
@@ -131,7 +136,7 @@ pub async fn batched_get_by_hash_with_mods(
             WHERE plugins.hash > $2
             GROUP BY plugins.hash
             ORDER BY plugins.hash ASC
-            LIMIT $1",
+            LIMIT $1"#,
             page_size,
             last_hash,
             master,

@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use sqlx::types::Json;
 use tracing::instrument;
+
+use super::hash_to_string;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct File {
@@ -42,8 +45,15 @@ pub struct FileWithCells {
     pub has_plugin: bool,
     pub unable_to_extract_plugins: bool,
     pub cells: Option<serde_json::Value>,
-    pub plugins: Option<serde_json::Value>,
+    pub plugins: Option<Json<Vec<FilePlugin>>>,
     pub plugin_count: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilePlugin {
+    #[serde(serialize_with = "hash_to_string")]
+    pub hash: i64,
+    pub file_path: String,
 }
 
 #[derive(Debug)]
@@ -211,10 +221,10 @@ pub async fn batched_get_with_cells(
     if let Some(updated_after) = updated_after {
         sqlx::query_as!(
             FileWithCells,
-            "SELECT
+            r#"SELECT
                 files.*,
                 COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_path', plugins.file_path)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_path', plugins.file_path)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS "plugins: Json<Vec<FilePlugin>>",
                 COUNT(plugins.*) AS plugin_count
             FROM files
             LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
@@ -223,7 +233,7 @@ pub async fn batched_get_with_cells(
             WHERE files.id > $2 AND files.updated_at > $5
             GROUP BY files.id
             ORDER BY files.id ASC
-            LIMIT $1",
+            LIMIT $1"#,
             page_size,
             last_id,
             master,
@@ -236,10 +246,10 @@ pub async fn batched_get_with_cells(
     } else {
         sqlx::query_as!(
             FileWithCells,
-            "SELECT
+            r#"SELECT
                 files.*,
                 COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_path', plugins.file_path)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS plugins,
+                COALESCE(json_agg(DISTINCT jsonb_build_object('hash', plugins.hash, 'file_path', plugins.file_path)) FILTER (WHERE plugins.hash IS NOT NULL), '[]') AS "plugins: Json<Vec<FilePlugin>>",
                 COUNT(plugins.*) AS plugin_count
             FROM files
             LEFT OUTER JOIN plugin_cells ON plugin_cells.file_id = files.id
@@ -248,7 +258,7 @@ pub async fn batched_get_with_cells(
             WHERE files.id > $2
             GROUP BY files.id
             ORDER BY files.id ASC
-            LIMIT $1",
+            LIMIT $1"#,
             page_size,
             last_id,
             master,

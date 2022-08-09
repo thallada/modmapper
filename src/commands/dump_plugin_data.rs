@@ -5,23 +5,7 @@ use std::io::Write;
 use std::path::Path;
 use tracing::info;
 
-use crate::models::plugin;
-
-// From: https://stackoverflow.com/a/50278316/6620612
-fn format_radix(mut x: u64, radix: u32) -> String {
-    let mut result = vec![];
-    loop {
-        let m = x % radix as u64;
-        x /= radix as u64;
-
-        // will panic if you use a bad radix (< 2 or > 36).
-        result.push(std::char::from_digit(m as u32, radix).unwrap());
-        if x == 0 {
-            break;
-        }
-    }
-    result.into_iter().rev().collect()
-}
+use crate::models::{plugin, format_radix};
 
 pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, updated_after: Option<NaiveDateTime>) -> Result<()> {
     let mut page: u32 = 1;
@@ -39,7 +23,8 @@ pub async fn dump_plugin_data(pool: &sqlx::Pool<sqlx::Postgres>, dir: &str, upda
             let path = path.join(format!("{}.json", format_radix(plugin.hash as u64, 36)));
             info!(page = page, hash = plugin.hash, "dumping plugin data to {}", path.display());
             let mut file = File::create(path)?;
-            write!(file, "{}", serde_json::to_string(&plugin)?)?;
+            let json_val = serde_json::to_string(&plugin)?;
+            write!(file, "{}", json_val)?;
             last_hash = Some(plugin.hash);
         }
         page += 1;
