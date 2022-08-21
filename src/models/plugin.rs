@@ -93,6 +93,21 @@ pub async fn batched_get_by_hash_with_mods(
 ) -> Result<Vec<PluginsByHashWithMods>> {
     let last_hash = last_hash.unwrap_or(-9223372036854775808); // psql bigint min
     if let Some(updated_after) = updated_after {
+        let hashes = sqlx::query!(
+            r#"SELECT
+                plugins.hash
+            FROM plugins
+            WHERE plugins.hash > $2 AND plugins.updated_at > $3
+            GROUP BY plugins.hash
+            ORDER BY plugins.hash ASC
+            LIMIT $1"#,
+            page_size,
+            last_hash,
+            updated_after
+        )
+        .fetch_all(pool)
+        .await
+        .context("Failed to batch get plugin hashes")?;
         sqlx::query_as!(
             PluginsByHashWithMods,
             r#"SELECT
@@ -100,21 +115,17 @@ pub async fn batched_get_by_hash_with_mods(
                 json_agg(DISTINCT plugins.*) as "plugins: Json<Vec<Plugin>>",
                 json_agg(DISTINCT files.*) as files,
                 json_agg(DISTINCT mods.*) as mods,
-                COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $3 AND cells.world_id = $4), '[]') AS cells
+                COALESCE(json_agg(DISTINCT jsonb_build_object('x', cells.x, 'y', cells.y)) FILTER (WHERE cells.x IS NOT NULL AND cells.y IS NOT NULL AND cells.master = $2 AND cells.world_id = $3), '[]') AS cells
             FROM plugins
             LEFT OUTER JOIN files ON files.id = plugins.file_id
             LEFT OUTER JOIN mods ON mods.id = files.mod_id
             LEFT OUTER JOIN plugin_cells ON plugin_cells.plugin_id = plugins.id
             LEFT OUTER JOIN cells ON cells.id = plugin_cells.cell_id
-            WHERE plugins.hash > $2 AND plugins.updated_at > $5
-            GROUP BY plugins.hash
-            ORDER BY plugins.hash ASC
-            LIMIT $1"#,
-            page_size,
-            last_hash,
+            WHERE plugins.hash = ANY($1::bigint[])
+            GROUP BY plugins.hash"#,
+            &hashes.into_iter().map(|h| h.hash).collect::<Vec<i64>>(),
             master,
-            world_id,
-            updated_after
+            world_id
         )
         .fetch_all(pool)
         .await
