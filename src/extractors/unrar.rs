@@ -12,6 +12,7 @@ pub async fn extract_with_unrar(
     pool: &sqlx::Pool<sqlx::Postgres>,
     db_file: &File,
     db_mod: &Mod,
+    game_name: &str,
     checked_metadata: bool,
 ) -> Result<()> {
     let temp_dir = tempdir()?;
@@ -80,6 +81,7 @@ pub async fn extract_with_unrar(
                 &db_file,
                 &db_mod,
                 &file_path.to_string_lossy(),
+                game_name,
             )
             .await?;
         }

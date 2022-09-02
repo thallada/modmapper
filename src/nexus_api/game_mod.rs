@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::{env, time::Duration};
 use tracing::{info, instrument};
 
-use super::{rate_limit_wait_duration, warn_and_sleep, GAME_NAME, USER_AGENT};
+use super::{rate_limit_wait_duration, warn_and_sleep, USER_AGENT};
 
 pub struct ModResponse {
     pub wait: Duration,
@@ -13,12 +13,12 @@ pub struct ModResponse {
 }
 
 #[instrument(skip(client))]
-pub async fn get(client: &Client, mod_id: i32) -> Result<ModResponse> {
+pub async fn get(client: &Client, game_name: &str, mod_id: i32) -> Result<ModResponse> {
     for attempt in 1..=3 {
         let res = match client
             .get(format!(
                 "https://api.nexusmods.com/v1/games/{}/mods/{}.json",
-                GAME_NAME, mod_id
+                game_name, mod_id
             ))
             .header("accept", "application/json")
             .header("apikey", env::var("NEXUS_API_KEY")?)

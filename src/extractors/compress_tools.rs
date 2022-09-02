@@ -88,13 +88,14 @@ pub async fn extract_with_compress_tools(
     pool: &sqlx::Pool<sqlx::Postgres>,
     db_file: &File,
     db_mod: &Mod,
+    game_name: &str,
 ) -> Result<()> {
     let extractor = Extractor::new(file);
     for plugin in extractor.into_iter() {
         let (file_path, mut plugin_buf) = plugin?;
         let plugin_span = info_span!("plugin", name = ?file_path);
         let _plugin_span = plugin_span.enter();
-        process_plugin(&mut plugin_buf, &pool, &db_file, &db_mod, &file_path).await?;
+        process_plugin(&mut plugin_buf, &pool, &db_file, &db_mod, &file_path, game_name).await?;
     }
     Ok(())
 }

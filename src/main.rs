@@ -24,6 +24,10 @@ struct Args {
     /// the page number to start scraping for mods on nexus mods
     page: usize,
 
+    #[argh(option, short = 'g', default = "String::from(\"skyrimspecialedition\")")]
+    /// name of nexus game to scrape (e.g. "skyrim" or "skyrimspecialedition")
+    game: String,
+
     #[argh(switch, short = 'f')]
     /// enable full scrape of all pages, rather than stopping after 50 pages of no updates
     full: bool,
@@ -110,5 +114,5 @@ pub async fn main() -> Result<()> {
         return backfill_is_translation(&pool).await;
     }
 
-    return update(&pool, args.page, args.full).await;
+    return update(&pool, args.page, &args.game, args.full).await;
 }

@@ -14,7 +14,6 @@ use crate::models::{plugin, plugin::UnsavedPlugin};
 use crate::models::{plugin_cell, plugin_cell::UnsavedPluginCell};
 use crate::models::{plugin_world, plugin_world::UnsavedPluginWorld};
 use crate::models::{world, world::UnsavedWorld};
-use crate::nexus_api::GAME_NAME;
 
 fn get_local_form_id_and_master<'a>(
     form_id: u32,
@@ -35,6 +34,7 @@ pub async fn process_plugin(
     db_file: &File,
     db_mod: &Mod,
     file_path: &str,
+    game_name: &str,
 ) -> Result<()> {
     if plugin_buf.is_empty() {
         warn!("skipping processing of invalid empty plugin");
@@ -148,7 +148,7 @@ pub async fn process_plugin(
 
     let plugin_path = [
         "plugins",
-        GAME_NAME,
+        game_name,
         &format!("{}", db_mod.nexus_mod_id),
         &format!("{}", db_file.nexus_file_id),
         file_path,

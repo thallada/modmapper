@@ -42,7 +42,8 @@ RUST_LOG=mod_mapper=debug
 NEXUS_API_KEY=...
 ```
 
-7. Either run `cargo run` for development mode, or build the release binary with `cargo build --release`, which will get saved to `target/release/`.
+7. Build the release binary by running `cargo build --release`.
+8. See `./target/release/modmapper -h` for further commands or run `./scripts/update.sh` to start populating the database with scraped mods and dumping the data to JSON files.
 
 ## Sync and Backup Setup
 

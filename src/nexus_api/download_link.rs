@@ -8,7 +8,7 @@ use tokio::fs::File;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{info, instrument};
 
-use super::{rate_limit_wait_duration, warn_and_sleep, GAME_NAME, USER_AGENT};
+use super::{rate_limit_wait_duration, warn_and_sleep, USER_AGENT};
 
 pub struct DownloadLinkResponse {
     pub wait: Duration,
@@ -16,12 +16,12 @@ pub struct DownloadLinkResponse {
 }
 
 #[instrument(skip(client))]
-pub async fn get(client: &Client, mod_id: i32, file_id: i64) -> Result<DownloadLinkResponse> {
+pub async fn get(client: &Client, game_name: &str, mod_id: i32, file_id: i64) -> Result<DownloadLinkResponse> {
     for attempt in 1..=3 {
         let res = match client
             .get(format!(
                 "https://api.nexusmods.com/v1/games/{}/mods/{}/files/{}/download_link.json",
-                GAME_NAME, mod_id, file_id
+                game_name, mod_id, file_id
             ))
             .header("accept", "application/json")
             .header("apikey", env::var("NEXUS_API_KEY")?)

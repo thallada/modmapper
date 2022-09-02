@@ -13,7 +13,7 @@ use crate::extractors::{self, extract_with_7zip, extract_with_compress_tools, ex
 use crate::models::file;
 use crate::models::game;
 use crate::models::{game_mod, game_mod::UnsavedMod};
-use crate::nexus_api::{self, GAME_ID, GAME_NAME};
+use crate::nexus_api::{self, get_game_id};
 use crate::nexus_scraper;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
@@ -22,6 +22,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub async fn update(
     pool: &sqlx::Pool<sqlx::Postgres>,
     start_page: usize,
+    game_name: &str,
     full: bool,
 ) -> Result<()> {
     for include_translations in [false, true] {
@@ -29,12 +30,13 @@ pub async fn update(
         let mut has_next_page = true;
         let mut pages_with_no_updates = 0;
 
-        let game = game::insert(&pool, GAME_NAME, GAME_ID as i32).await?;
-
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .build()?;
+
+        let game_id = get_game_id(game_name).expect("valid game name");
+        let game = game::insert(&pool, game_name, game_id).await?;
 
         while has_next_page {
             if !full && pages_with_no_updates >= 50 {
@@ -42,10 +44,10 @@ pub async fn update(
                 break;
             }
 
-            let page_span = info_span!("page", page, include_translations);
+            let page_span = info_span!("page", page, game_name, include_translations);
             let _page_span = page_span.enter();
             let mod_list_resp =
-                nexus_scraper::get_mod_list_page(&client, page, include_translations).await?;
+                nexus_scraper::get_mod_list_page(&client, page, game.nexus_game_id, include_translations).await?;
             let scraped = mod_list_resp.scrape_mods()?;
 
             has_next_page = scraped.has_next_page;
@@ -109,7 +111,7 @@ pub async fn update(
             for db_mod in mods {
                 let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
                 let _mod_span = mod_span.enter();
-                let files_resp = nexus_api::files::get(&client, db_mod.nexus_mod_id).await?;
+                let files_resp = nexus_api::files::get(&client, game_name, db_mod.nexus_mod_id).await?;
 
                 debug!(duration = ?files_resp.wait, "sleeping");
                 sleep(files_resp.wait).await;
@@ -190,6 +192,7 @@ pub async fn update(
                     info!(size = %humanized_size, "decided to download file");
                     let download_link_resp = nexus_api::download_link::get(
                         &client,
+                        game_name,
                         db_mod.nexus_mod_id,
                         api_file.file_id,
                     )
@@ -252,6 +255,7 @@ pub async fn update(
                                 &pool,
                                 &db_file,
                                 &db_mod,
+                                game_name,
                                 checked_metadata,
                             )
                             .await
@@ -261,7 +265,7 @@ pub async fn update(
                                     // unrar failed to extract rar file (e.g. archive has unicode filenames)
                                     // Attempt to uncompress the archive using `7z` unix command instead
                                     warn!(error = %err, "failed to extract file with unrar, extracting whole archive with 7z instead");
-                                    extract_with_7zip(&mut file, &pool, &db_file, &db_mod).await
+                                    extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name).await
                                 }
                             }?;
                         }
@@ -269,7 +273,7 @@ pub async fn update(
                             tokio_file.seek(SeekFrom::Start(0)).await?;
                             let mut file = tokio_file.try_clone().await?.into_std().await;
 
-                            match extract_with_compress_tools(&mut file, &pool, &db_file, &db_mod)
+                            match extract_with_compress_tools(&mut file, &pool, &db_file, &db_mod, game_name)
                                 .await
                             {
                                 Ok(_) => Ok(()),
@@ -284,7 +288,7 @@ pub async fn update(
                                         // compress_tools or libarchive failed to extract zip/7z file (e.g. archive is deflate64 compressed)
                                         // Attempt to uncompress the archive using `7z` unix command instead
                                         warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with 7z instead");
-                                        extract_with_7zip(&mut file, &pool, &db_file, &db_mod).await
+                                        extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name).await
                                     } else {
                                         Err(err)
                                     }

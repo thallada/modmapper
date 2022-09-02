@@ -11,9 +11,19 @@ pub mod files;
 pub mod game_mod;
 pub mod metadata;
 
-pub static GAME_NAME: &str = "skyrimspecialedition";
-pub const GAME_ID: u32 = 1704;
+pub const SKYRIM_GAME_NAME: &str = "skyrim";
+pub const SKYRIM_GAME_ID: i32 = 110;
+pub const SSE_GAME_NAME: &str = "skyrimspecialedition";
+pub const SSE_GAME_ID: i32 = 1704;
 pub static USER_AGENT: &str = "mod-mapper/0.1";
+
+pub fn get_game_id(name: &str) -> Option<i32> {
+    match name {
+        SKYRIM_GAME_NAME => Some(SKYRIM_GAME_ID),
+        SSE_GAME_NAME => Some(SSE_GAME_ID),
+        _ => None,
+    }
+}
 
 pub fn rate_limit_wait_duration(res: &Response) -> Result<std::time::Duration> {
     let daily_remaining: i32 = res

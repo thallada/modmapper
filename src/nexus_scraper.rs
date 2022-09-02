@@ -4,8 +4,6 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use tracing::{info, instrument};
 
-use crate::nexus_api::GAME_ID;
-
 pub struct ModListResponse {
     html: Html,
 }
@@ -32,12 +30,13 @@ pub struct ModListScrape<'a> {
 pub async fn get_mod_list_page(
     client: &Client,
     page: usize,
+    game_id: i32,
     include_translations: bool,
 ) -> Result<ModListResponse> {
     let res = client
         .get(format!(
             "https://www.nexusmods.com/Core/Libs/Common/Widgets/ModList?RH_ModList=nav:true,home:false,type:0,user_id:0,game_id:{},advfilt:true,tags_{}%5B%5D:1428,include_adult:true,page_size:20,show_game_filter:false,open:false,page:{},sort_by:lastupdate",
-            GAME_ID,
+            game_id,
             match include_translations { true => "yes", false => "no" },
             page
         ))

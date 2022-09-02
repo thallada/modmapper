@@ -3,7 +3,7 @@ if [ -f cells/edits.json ]; then
     last_update_time=$(date -r cells/edits.json +'%Y-%m-%dT%H:%M:%S')
 fi
 mkdir -p logs
-./target/release/mod-mapper &>> logs/modmapper.log
+./target/release/mod-mapper -g skyrimspecialedition &>> logs/modmapper.log
 mkdir -p cells
 mkdir -p mods
 mkdir -p files
