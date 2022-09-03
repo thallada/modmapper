@@ -18,7 +18,7 @@ use commands::{
 };
 
 #[derive(FromArgs)]
-/// Downloads every mod off nexus mods, parses CELL and WRLD data from plugins in each, and saves the data to the database.
+/// Downloads every mod off nexus mods, parses CELL and WRLD data from plugins in each, and saves the da&ta to the database.
 struct Args {
     #[argh(option, short = 'p', default = "1")]
     /// the page number to start scraping for mods on nexus mods
@@ -100,7 +100,7 @@ pub async fn main() -> Result<()> {
         return dump_mod_data(&pool, &dir, args.updated_after).await;
     }
     if let Some(path) = args.mod_search_index {
-        return dump_mod_search_index(&pool, &path).await;
+        return dump_mod_search_index(&pool, &args.game, &path).await;
     }
     if let Some(path) = args.mod_cell_counts {
         return dump_mod_cell_counts(&pool, &path).await;

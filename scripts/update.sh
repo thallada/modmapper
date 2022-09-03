@@ -11,7 +11,8 @@ mkdir -p plugins_data
 if [ -n "$last_update_time" ]; then
     ./target/release/mod-mapper -e cells/edits.json &>> logs/modmapper.log
     ./target/release/mod-mapper -c cells &>> logs/modmapper.log
-    ./target/release/mod-mapper -s mods/mod_search_index.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -s mods/skyrimspecialedition_mod_search_index.json -g skyrimspecialedition &>> logs/modmapper.log
+    ./target/release/mod-mapper -s mods/skyrim_mod_search_index.json -g skyrim &>> logs/modmapper.log
     ./target/release/mod-mapper -M mods/mod_cell_counts.json &>> logs/modmapper.log
     ./target/release/mod-mapper -G mods/games.json &>> logs/modmapper.log
     ./target/release/mod-mapper -m mods -u "$last_update_time" &>> logs/modmapper.log
@@ -20,7 +21,8 @@ if [ -n "$last_update_time" ]; then
 else
     ./target/release/mod-mapper -e cells/edits.json &>> logs/modmapper.log
     ./target/release/mod-mapper -c cells &>> logs/modmapper.log
-    ./target/release/mod-mapper -s mods/mod_search_index.json &>> logs/modmapper.log
+    ./target/release/mod-mapper -s mods/skyrimspecialedition_mod_search_index.json -g skyrimspecialedition &>> logs/modmapper.log
+    ./target/release/mod-mapper -s mods/skyrim_mod_search_index.json -g skyrim &>> logs/modmapper.log
     ./target/release/mod-mapper -M mods/mod_cell_counts.json &>> logs/modmapper.log
     ./target/release/mod-mapper -G mods/games.json &>> logs/modmapper.log
     ./target/release/mod-mapper -m mods &>> logs/modmapper.log

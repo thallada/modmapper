@@ -45,3 +45,17 @@ pub async fn get_all(
     .await
     .context("Failed to fetch games")
 }
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn get_id_by_name(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    name: &str,
+) -> Result<i32> {
+    sqlx::query_scalar!(
+        "SELECT id FROM games WHERE name = $1",
+        name
+    )
+    .fetch_one(pool)
+    .await
+    .context("Failed to fetch game id by name")
+}

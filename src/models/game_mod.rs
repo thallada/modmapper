@@ -351,6 +351,7 @@ pub async fn update_from_api_response<'a>(
 #[instrument(level = "debug", skip(pool))]
 pub async fn batched_get_for_search(
     pool: &sqlx::Pool<sqlx::Postgres>,
+    game: i32,
     page_size: i64,
     last_id: Option<i32>,
 ) -> Result<Vec<ModForSearch>> {
@@ -363,9 +364,10 @@ pub async fn batched_get_for_search(
             game_id,
             nexus_mod_id
         FROM mods
-        WHERE id > $2
+        WHERE id > $3 AND game_id = $1
         ORDER BY mods.id ASC
-        LIMIT $1",
+        LIMIT $2",
+        game,
         page_size,
         last_id,
     )
