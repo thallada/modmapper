@@ -32,3 +32,16 @@ pub async fn insert(
     .await
     .context("Failed to insert game")
 }
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn get_all(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+) -> Result<Vec<Game>> {
+    sqlx::query_as!(
+        Game,
+        "SELECT * FROM games"
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch games")
+}

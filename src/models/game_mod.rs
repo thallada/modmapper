@@ -48,6 +48,7 @@ pub struct UnsavedMod<'a> {
 pub struct ModForSearch {
     pub id: i32,
     pub name: String,
+    pub game_id: i32,
     pub nexus_mod_id: i32,
 }
 
@@ -359,6 +360,7 @@ pub async fn batched_get_for_search(
         "SELECT
             id,
             name,
+            game_id,
             nexus_mod_id
         FROM mods
         WHERE id > $2

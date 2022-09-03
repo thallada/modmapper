@@ -14,7 +14,7 @@ mod plugin_processor;
 
 use commands::{
     backfills::backfill_is_translation, download_tiles, dump_cell_data, dump_cell_edit_counts,
-    dump_mod_cell_counts, dump_mod_data, dump_mod_search_index, dump_plugin_data, dump_file_data, update,
+    dump_mod_cell_counts, dump_mod_data, dump_mod_search_index, dump_plugin_data, dump_file_data, dump_games, update,
 };
 
 #[derive(FromArgs)]
@@ -59,6 +59,10 @@ struct Args {
     /// folder to output all files data as json files
     #[argh(option, short = 'F')]
     file_data: Option<String>,
+
+    /// file to output all the game data as json
+    #[argh(option, short = 'G')]
+    game_data: Option<String>,
 
     /// folder to output all map tile images downloaded from the UESP wiki
     #[argh(option, short = 't')]
@@ -106,6 +110,9 @@ pub async fn main() -> Result<()> {
     }
     if let Some(path) = args.file_data {
         return dump_file_data(&pool, &path, args.updated_after).await;
+    }
+    if let Some(path) = args.game_data {
+        return dump_games(&pool, &path).await;
     }
     if let Some(dir) = args.download_tiles {
         return download_tiles(&dir).await;
