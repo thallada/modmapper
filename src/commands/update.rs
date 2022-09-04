@@ -265,7 +265,7 @@ pub async fn update(
                                     // unrar failed to extract rar file (e.g. archive has unicode filenames)
                                     // Attempt to uncompress the archive using `7z` unix command instead
                                     warn!(error = %err, "failed to extract file with unrar, extracting whole archive with 7z instead");
-                                    extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name).await
+                                    extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
                                 }
                             }?;
                         }
@@ -288,7 +288,7 @@ pub async fn update(
                                         // compress_tools or libarchive failed to extract zip/7z file (e.g. archive is deflate64 compressed)
                                         // Attempt to uncompress the archive using `7z` unix command instead
                                         warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with 7z instead");
-                                        extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name).await
+                                        extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
                                     } else {
                                         Err(err)
                                     }

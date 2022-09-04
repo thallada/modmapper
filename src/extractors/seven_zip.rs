@@ -2,10 +2,10 @@ use anyhow::Result;
 use std::io::{Seek, SeekFrom};
 use std::process::Command;
 use tempfile::tempdir;
-use tracing::{info, info_span};
+use tracing::{info, info_span, warn};
 use walkdir::WalkDir;
 
-use crate::models::file::File;
+use crate::models::{file, file::File};
 use crate::models::game_mod::Mod;
 use crate::plugin_processor::process_plugin;
 
@@ -15,6 +15,7 @@ pub async fn extract_with_7zip(
     db_file: &File,
     db_mod: &Mod,
     game_name: &str,
+    checked_metadata: bool,
 ) -> Result<()> {
     file.seek(SeekFrom::Start(0))?;
     let temp_dir = tempdir()?;
@@ -24,13 +25,19 @@ pub async fn extract_with_7zip(
     drop(temp_file); // close handle to temp file so 7zip process can open it
     let extracted_path = temp_dir.path().join("extracted");
 
-    Command::new("7z")
+    let status = Command::new("7z")
         .args(&[
             "x",
             &format!("-o{}", &extracted_path.to_string_lossy()),
             &temp_file_path.to_string_lossy().to_string(),
         ])
         .status()?;
+
+    if !status.success() && !checked_metadata {
+        warn!("failed to extract archive and server has no metadata, skipping file");
+        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+        return Ok(());
+    }
 
     for entry in WalkDir::new(&extracted_path)
         .contents_first(true)
