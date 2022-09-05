@@ -95,7 +95,8 @@ pub async fn extract_with_compress_tools(
         let (file_path, mut plugin_buf) = plugin?;
         let plugin_span = info_span!("plugin", name = ?file_path);
         let _plugin_span = plugin_span.enter();
-        process_plugin(&mut plugin_buf, &pool, &db_file, &db_mod, &file_path, game_name).await?;
+        let safe_file_path = file_path.replace("\\", "/");
+        process_plugin(&mut plugin_buf, &pool, &db_file, &db_mod, &safe_file_path, game_name).await?;
     }
     Ok(())
 }

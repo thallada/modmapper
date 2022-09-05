@@ -11,7 +11,7 @@ description = "Saves Skyrim mod cell edits to a database"
 anyhow = "1.0"
 argh = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-compress-tools = "0.12"
+compress-tools = "0.13"
 dotenv = "0.15"
 futures = "0.3"
 humansize = "1.1"
