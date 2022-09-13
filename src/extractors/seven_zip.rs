@@ -43,6 +43,7 @@ pub async fn extract_with_7zip(
         .contents_first(true)
         .into_iter()
         .filter_entry(|e| {
+            if e.file_type().is_dir() { return false }
             if let Some(extension) = e.path().extension() {
                 extension == "esp" || extension == "esm" || extension == "esl"
             } else {
