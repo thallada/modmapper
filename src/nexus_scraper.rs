@@ -129,7 +129,7 @@ impl ModListResponse {
                 let author_name = author_elem
                     .text()
                     .next()
-                    .expect("Missing author text for mod");
+                    .unwrap_or("Unknown");
                 let desc_elem = right
                     .select(&desc_select)
                     .next()
