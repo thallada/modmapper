@@ -4,6 +4,7 @@ if [ -f cells/edits.json ]; then
 fi
 mkdir -p logs
 ./target/release/mod-mapper -g skyrimspecialedition &>> logs/modmapper.log
+./target/release/mod-mapper -g skyrim &>> logs/modmapper.log
 mkdir -p cells
 mkdir -p mods
 mkdir -p files
