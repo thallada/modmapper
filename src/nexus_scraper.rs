@@ -8,6 +8,7 @@ pub struct ModListResponse {
     html: Html,
 }
 
+#[derive(Debug)]
 pub struct ScrapedMod<'a> {
     pub nexus_mod_id: i32,
     pub name: &'a str,

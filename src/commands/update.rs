@@ -53,6 +53,7 @@ pub async fn update(
             has_next_page = scraped.has_next_page;
             let processed_mods = game_mod::bulk_get_last_updated_by_nexus_mod_ids(
                 &pool,
+                game.id,
                 &scraped
                     .mods
                     .iter()

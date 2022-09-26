@@ -122,12 +122,15 @@ pub struct ModLastUpdatedFilesAt {
 #[instrument(level = "debug", skip(pool))]
 pub async fn bulk_get_last_updated_by_nexus_mod_ids(
     pool: &sqlx::Pool<sqlx::Postgres>,
+    game_id: i32,
     nexus_mod_ids: &[i32],
 ) -> Result<Vec<ModLastUpdatedFilesAt>> {
     sqlx::query!(
         "SELECT nexus_mod_id, last_updated_files_at FROM mods
-            WHERE nexus_mod_id = ANY($1::int[])
+            WHERE game_id = $1
+            AND nexus_mod_id = ANY($2::int[])
             AND last_updated_files_at IS NOT NULL",
+        game_id,
         nexus_mod_ids,
     )
     .map(|row| ModLastUpdatedFilesAt {
