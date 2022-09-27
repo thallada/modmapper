@@ -71,11 +71,11 @@ impl ModListResponse {
         let last_update_date_select =
             Selector::parse("div.date").expect("failed to parse CSS selector");
         let next_page_select =
-            Selector::parse("div.pagination li.next").expect("failed to parse CSS selector");
+            Selector::parse("div.pagination li:last-child a.page-selected").expect("failed to parse CSS selector");
 
         let next_page_elem = self.html.select(&next_page_select).next();
 
-        let has_next_page = next_page_elem.is_some();
+        let has_next_page = next_page_elem.is_none();
 
         let mods: Vec<ScrapedMod> = self
             .html
