@@ -151,7 +151,7 @@ pub async fn process_plugin(
         game_name,
         &format!("{}", db_mod.nexus_mod_id),
         &format!("{}", db_file.nexus_file_id),
-        file_path,
+        &file_path.replace("./", "/"), // NTFS does not like trailing periods in folder names
     ]
     .iter()
     .collect::<PathBuf>();
