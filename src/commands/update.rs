@@ -270,6 +270,12 @@ pub async fn update(
                                 }
                             }?;
                         }
+                        "application/vnd.microsoft.portable-executable" => {
+                            // ignoring .exe files for now, there's not too many of them and there's no standard way to extract them
+                            warn!("archive is an .exe file and cannot extract, skipping file");
+                            file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                            continue;
+                        }
                         _ => {
                             tokio_file.seek(SeekFrom::Start(0)).await?;
                             let mut file = tokio_file.try_clone().await?.into_std().await;
