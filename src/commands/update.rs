@@ -270,12 +270,6 @@ pub async fn update(
                                 }
                             }?;
                         }
-                        "application/vnd.microsoft.portable-executable" => {
-                            // ignoring .exe files for now, there's not too many of them and there's no standard way to extract them
-                            warn!("archive is an .exe file and cannot extract, skipping file");
-                            file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
-                            continue;
-                        }
                         _ => {
                             tokio_file.seek(SeekFrom::Start(0)).await?;
                             let mut file = tokio_file.try_clone().await?.into_std().await;
@@ -296,6 +290,11 @@ pub async fn update(
                                         // Attempt to uncompress the archive using `7z` unix command instead
                                         warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with 7z instead");
                                         extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
+                                    } else if kind.mime_type() == "application/vnd.microsoft.portable-executable" {
+                                        // we tried to extract this .exe file, but it's not an archive so there's nothing we can do
+                                        warn!("archive is an .exe file that cannot be extracted, skipping file");
+                                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                                        continue;
                                     } else {
                                         Err(err)
                                     }
