@@ -1811,9 +1811,9 @@ checksum = "cbce6d4507c7e4a3962091436e56e95290cb71fa302d0d270e32130b75fbff27"
 
 [[package]]
 name = "skyrim-cell-dump"
-version = "0.3.1"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36d38b3f5577ff8cb76df54ff101ec8f4c3382ba88aa0b68f899b3a2514c4ede"
+checksum = "4c69d5c5ed317d90305398c8fbf77afbc5b4e6567542d60db1b630a40ec5a918"
 dependencies = [
  "anyhow",
  "bitflags",
