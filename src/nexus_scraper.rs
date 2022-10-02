@@ -4,6 +4,11 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use tracing::{info, instrument};
 
+pub struct LoginResponse {
+    pub html: Html,
+    pub cookie: String,
+}
+
 pub struct ModListResponse {
     html: Html,
 }
@@ -25,6 +30,57 @@ pub struct ScrapedMod<'a> {
 pub struct ModListScrape<'a> {
     pub mods: Vec<ScrapedMod<'a>>,
     pub has_next_page: bool,
+}
+
+#[instrument(skip(client))]
+pub async fn get_login_form(client: &Client) -> Result<LoginResponse> {
+    let res = client
+        .get("https://users.nexusmods.com/auth/sign_in")
+        .send()
+        .await?
+        .error_for_status()?;
+    info!(status = %res.status(), "fetched login form");
+    let cookie = res
+        .headers()
+        .get("set-cookie")
+        .expect("Missing set-cookie header on login GET response")
+        .to_str()
+        .expect("set-cookie header on login GET response contained invalid ASCII characters")
+        .to_string();
+    let text = res.text().await?;
+    let html = Html::parse_document(&text);
+
+    Ok(LoginResponse { html, cookie })
+}
+
+#[instrument(skip(client, cookie, password))]
+pub async fn login(
+    client: &Client,
+    authenticity_token: &str,
+    cookie: &str,
+    username: &str,
+    password: &str,
+) -> Result<String> {
+    let res = client
+        .post("https://users.nexusmods.com/auth/sign_in")
+        .header("Cookie", cookie)
+        .form(&[
+            ("authenticity_token", authenticity_token),
+            ("user[login]", username),
+            ("user[password]", password),
+            ("commit", "Log+in"),
+        ])
+        .send()
+        .await?
+        .error_for_status()?;
+    info!(status = %res.status(), "submitted login form");
+    Ok(res
+        .headers()
+        .get("set-cookie")
+        .expect("Missing set-cookie header on login POST response")
+        .to_str()
+        .expect("set-cookie header on login POST response contained invalid ASCII characters")
+        .to_string())
 }
 
 #[instrument(skip(client))]
@@ -51,6 +107,24 @@ pub async fn get_mod_list_page(
     Ok(ModListResponse { html })
 }
 
+impl LoginResponse {
+    #[instrument(skip(self))]
+    pub fn scrape_authenticity_token(&self) -> Result<String> {
+        let token_select = Selector::parse(r#"input[name="authenticity_token"]"#)
+            .expect("failed to parse CSS selector");
+        let token_elem = self
+            .html
+            .select(&token_select)
+            .next()
+            .expect("Missing authenticity_token input");
+        let token = token_elem
+            .value()
+            .attr("value")
+            .expect("Missing value attribute on authenticity_token input");
+        Ok(token.to_string())
+    }
+}
+
 impl ModListResponse {
     #[instrument(skip(self))]
     pub fn scrape_mods<'a>(&'a self) -> Result<ModListScrape> {
@@ -70,8 +144,8 @@ impl ModListResponse {
             Selector::parse("time.date").expect("failed to parse CSS selector");
         let last_update_date_select =
             Selector::parse("div.date").expect("failed to parse CSS selector");
-        let next_page_select =
-            Selector::parse("div.pagination li:last-child a.page-selected").expect("failed to parse CSS selector");
+        let next_page_select = Selector::parse("div.pagination li:last-child a.page-selected")
+            .expect("failed to parse CSS selector");
 
         let next_page_elem = self.html.select(&next_page_select).next();
 
@@ -127,10 +201,7 @@ impl ModListResponse {
                     .expect("Missing author id for mod")
                     .parse::<i32>()
                     .expect("Failed to parse author id");
-                let author_name = author_elem
-                    .text()
-                    .next()
-                    .unwrap_or("Unknown");
+                let author_name = author_elem.text().next().unwrap_or("Unknown");
                 let desc_elem = right
                     .select(&desc_select)
                     .next()
