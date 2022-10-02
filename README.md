@@ -45,10 +45,6 @@ NEXUS_API_KEY=...
 7. Build the release binary by running `cargo build --release`.
 8. See `./target/release/modmapper -h` for further commands or run `./scripts/update.sh` to start populating the database with scraped mods and dumping the data to JSON files.
 
-## Nexus Mods user credentials
-
-Nexus Mods filters out adult-only mods unless you are logged in and have set your content filters to allow adult mods. Modmapper works without Nexus Mods user credentials, but if you would like to add your user credentials so that adult mods are included then edit the `.env` file and add values for `NEXUS_MODS_USERNAME` and `NEXUS_MODS_PASSWORD`.
-
 ## Sync and Backup Setup
 
 `scripts/sync.sh` and `scripts/backup.sh` both utilize [`rclone`](https://rclone.org) to transfer files that are generated on the machine running modmapper to separate servers for file storage.

@@ -1,9 +1,8 @@
 use anyhow::Result;
 use chrono::{NaiveDateTime, NaiveTime};
 use humansize::{file_size_opts, FileSize};
-use reqwest::{header, StatusCode};
+use reqwest::StatusCode;
 use std::collections::HashSet;
-use std::env;
 use std::io::SeekFrom;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -14,7 +13,7 @@ use crate::extractors::{self, extract_with_7zip, extract_with_compress_tools, ex
 use crate::models::file;
 use crate::models::game;
 use crate::models::{game_mod, game_mod::UnsavedMod};
-use crate::nexus_api::{self, get_game_id, USER_AGENT};
+use crate::nexus_api::{self, get_game_id};
 use crate::nexus_scraper;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
@@ -31,41 +30,10 @@ pub async fn update(
         let mut has_next_page = true;
         let mut pages_with_no_updates = 0;
 
-        let unauthed_client = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
+        let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .build()?;
-        // An authed client is only needed to fetch adult mods, so default to an unauthed client
-        let mut scraping_client = unauthed_client.clone();
-
-        let username = env::var("NEXUS_MODS_USERNAME");
-        let password = env::var("NEXUS_MODS_PASSWORD");
-        if username.is_ok() && password.is_ok() {
-            let login_form = nexus_scraper::get_login_form(&scraping_client).await?;
-            let authenticity_token = login_form.scrape_authenticity_token()?;
-            let cookie = login_form.cookie;
-            let cookie = nexus_scraper::login(
-                &scraping_client,
-                &authenticity_token,
-                &cookie,
-                &username.unwrap(),
-                &password.unwrap(),
-            )
-            .await?;
-            let mut cookie = header::HeaderValue::from_str(&cookie)?;
-            cookie.set_sensitive(true);
-            let mut headers = header::HeaderMap::new();
-            headers.insert("Cookie", cookie);
-
-            let authed_client = reqwest::Client::builder()
-                .user_agent(USER_AGENT)
-                .timeout(REQUEST_TIMEOUT)
-                .connect_timeout(CONNECT_TIMEOUT)
-                .default_headers(headers)
-                .build()?;
-            scraping_client = authed_client;
-        }
 
         let game_id = get_game_id(game_name).expect("valid game name");
         let game = game::insert(&pool, game_name, game_id).await?;
@@ -78,13 +46,8 @@ pub async fn update(
 
             let page_span = info_span!("page", page, game_name, include_translations);
             let _page_span = page_span.enter();
-            let mod_list_resp = nexus_scraper::get_mod_list_page(
-                &scraping_client,
-                page,
-                game.nexus_game_id,
-                include_translations,
-            )
-            .await?;
+            let mod_list_resp =
+                nexus_scraper::get_mod_list_page(&client, page, game.nexus_game_id, include_translations).await?;
             let scraped = mod_list_resp.scrape_mods()?;
 
             has_next_page = scraped.has_next_page;
@@ -149,8 +112,7 @@ pub async fn update(
             for db_mod in mods {
                 let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
                 let _mod_span = mod_span.enter();
-                let files_resp =
-                    nexus_api::files::get(&unauthed_client, game_name, db_mod.nexus_mod_id).await?;
+                let files_resp = nexus_api::files::get(&client, game_name, db_mod.nexus_mod_id).await?;
 
                 debug!(duration = ?files_resp.wait, "sleeping");
                 sleep(files_resp.wait).await;
@@ -204,7 +166,7 @@ pub async fn update(
                     .await?;
 
                     let mut checked_metadata = false;
-                    match nexus_api::metadata::contains_plugin(&unauthed_client, &api_file).await {
+                    match nexus_api::metadata::contains_plugin(&client, &api_file).await {
                         Ok(contains_plugin) => {
                             if let Some(contains_plugin) = contains_plugin {
                                 checked_metadata = true;
@@ -230,7 +192,7 @@ pub async fn update(
                         .expect("unable to create human-readable file size");
                     info!(size = %humanized_size, "decided to download file");
                     let download_link_resp = nexus_api::download_link::get(
-                        &unauthed_client,
+                        &client,
                         game_name,
                         db_mod.nexus_mod_id,
                         api_file.file_id,
@@ -250,10 +212,7 @@ pub async fn update(
                     }
                     let download_link_resp = download_link_resp?;
 
-                    let mut tokio_file = match download_link_resp
-                        .download_file(&unauthed_client)
-                        .await
-                    {
+                    let mut tokio_file = match download_link_resp.download_file(&client).await {
                         Ok(file) => {
                             info!(bytes = api_file.size, "download finished");
                             file::update_downloaded_at(&pool, db_file.id).await?;
@@ -307,15 +266,7 @@ pub async fn update(
                                     // unrar failed to extract rar file (e.g. archive has unicode filenames)
                                     // Attempt to uncompress the archive using `7z` unix command instead
                                     warn!(error = %err, "failed to extract file with unrar, extracting whole archive with 7z instead");
-                                    extract_with_7zip(
-                                        &mut file,
-                                        &pool,
-                                        &db_file,
-                                        &db_mod,
-                                        game_name,
-                                        checked_metadata,
-                                    )
-                                    .await
+                                    extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
                                 }
                             }?;
                         }
@@ -323,10 +274,8 @@ pub async fn update(
                             tokio_file.seek(SeekFrom::Start(0)).await?;
                             let mut file = tokio_file.try_clone().await?.into_std().await;
 
-                            match extract_with_compress_tools(
-                                &mut file, &pool, &db_file, &db_mod, game_name,
-                            )
-                            .await
+                            match extract_with_compress_tools(&mut file, &pool, &db_file, &db_mod, game_name)
+                                .await
                             {
                                 Ok(_) => Ok(()),
                                 Err(err) => {
@@ -340,24 +289,11 @@ pub async fn update(
                                         // compress_tools or libarchive failed to extract zip/7z file (e.g. archive is deflate64 compressed)
                                         // Attempt to uncompress the archive using `7z` unix command instead
                                         warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with 7z instead");
-                                        extract_with_7zip(
-                                            &mut file,
-                                            &pool,
-                                            &db_file,
-                                            &db_mod,
-                                            game_name,
-                                            checked_metadata,
-                                        )
-                                        .await
-                                    } else if kind.mime_type()
-                                        == "application/vnd.microsoft.portable-executable"
-                                    {
+                                        extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
+                                    } else if kind.mime_type() == "application/vnd.microsoft.portable-executable" {
                                         // we tried to extract this .exe file, but it's not an archive so there's nothing we can do
                                         warn!("archive is an .exe file that cannot be extracted, skipping file");
-                                        file::update_unable_to_extract_plugins(
-                                            &pool, db_file.id, true,
-                                        )
-                                        .await?;
+                                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
                                         continue;
                                     } else {
                                         Err(err)
