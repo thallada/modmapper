@@ -474,42 +474,45 @@ pub async fn batched_get_with_cells_and_files(
     .await
     .context("Failed to batch get mod files")?;
 
-    Ok(mods.into_iter().map(|m| {
-        let id = m.id;
-        ModWithCellsAndFiles {
-            id: m.id,
-            name: m.name,
-            nexus_mod_id: m.nexus_mod_id,
-            author_name: m.author_name,
-            author_id: m.author_id,
-            category_name: m.category_name,
-            category_id: m.category_id,
-            description: m.description,
-            thumbnail_link: m.thumbnail_link,
-            game_id: m.game_id,
-            is_translation: m.is_translation,
-            updated_at: m.updated_at,
-            created_at: m.created_at,
-            last_update_at: m.last_update_at,
-            first_upload_at: m.first_upload_at,
-            last_updated_files_at: m.last_updated_files_at,
-            cells: mod_cells
-                .iter()
-                .find(|c| c.mod_id == id)
-                .map(|c| c.cells.clone())
-                .unwrap_or_else(|| Some(serde_json::Value::Array(vec![]))),
-            files: mod_files
-                .iter()
-                .find(|f| f.mod_id == id)
-                .map(|f| f.files.clone())
-                .unwrap_or_else(|| Some(serde_json::Value::Array(vec![]))),
-            plugin_count: plugins_count
-                .iter()
-                .find(|p| p.mod_id == id)
-                .map(|p| p.plugin_count)
-                .unwrap_or(Some(0)),
-        }
-    }).collect())
+    Ok(mods
+        .into_iter()
+        .map(|m| {
+            let id = m.id;
+            ModWithCellsAndFiles {
+                id: m.id,
+                name: m.name,
+                nexus_mod_id: m.nexus_mod_id,
+                author_name: m.author_name,
+                author_id: m.author_id,
+                category_name: m.category_name,
+                category_id: m.category_id,
+                description: m.description,
+                thumbnail_link: m.thumbnail_link,
+                game_id: m.game_id,
+                is_translation: m.is_translation,
+                updated_at: m.updated_at,
+                created_at: m.created_at,
+                last_update_at: m.last_update_at,
+                first_upload_at: m.first_upload_at,
+                last_updated_files_at: m.last_updated_files_at,
+                cells: mod_cells
+                    .iter()
+                    .find(|c| c.mod_id == id)
+                    .map(|c| c.cells.clone())
+                    .unwrap_or_else(|| Some(serde_json::Value::Array(vec![]))),
+                files: mod_files
+                    .iter()
+                    .find(|f| f.mod_id == id)
+                    .map(|f| f.files.clone())
+                    .unwrap_or_else(|| Some(serde_json::Value::Array(vec![]))),
+                plugin_count: plugins_count
+                    .iter()
+                    .find(|p| p.mod_id == id)
+                    .map(|p| p.plugin_count)
+                    .unwrap_or(Some(0)),
+            }
+        })
+        .collect())
 }
 
 #[instrument(level = "debug", skip(pool))]

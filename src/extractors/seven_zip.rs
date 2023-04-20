@@ -5,8 +5,8 @@ use tempfile::tempdir;
 use tracing::{info, info_span, warn};
 use walkdir::WalkDir;
 
-use crate::models::{file, file::File};
 use crate::models::game_mod::Mod;
+use crate::models::{file, file::File};
 use crate::plugin_processor::process_plugin;
 
 pub async fn extract_with_7zip(
@@ -26,16 +26,16 @@ pub async fn extract_with_7zip(
     let extracted_path = temp_dir.path().join("extracted");
 
     let status = Command::new("7z")
-        .args(&[
+        .args([
             "x",
             &format!("-o{}", &extracted_path.to_string_lossy()),
-            &temp_file_path.to_string_lossy().to_string(),
+            &temp_file_path.to_string_lossy(),
         ])
         .status()?;
 
     if !status.success() && !checked_metadata {
         warn!("failed to extract archive and server has no metadata, skipping file");
-        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+        file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
         return Ok(());
     }
 
@@ -43,7 +43,9 @@ pub async fn extract_with_7zip(
         .contents_first(true)
         .into_iter()
         .filter_entry(|e| {
-            if e.file_type().is_dir() { return false }
+            if e.file_type().is_dir() {
+                return false;
+            }
             if let Some(extension) = e.path().extension() {
                 extension == "esp" || extension == "esm" || extension == "esl"
             } else {
@@ -59,9 +61,9 @@ pub async fn extract_with_7zip(
         let mut plugin_buf = std::fs::read(extracted_path.join(file_path))?;
         process_plugin(
             &mut plugin_buf,
-            &pool,
-            &db_file,
-            &db_mod,
+            pool,
+            db_file,
+            db_mod,
             &file_path.to_string_lossy(),
             game_name,
         )

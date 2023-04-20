@@ -14,7 +14,8 @@ mod plugin_processor;
 
 use commands::{
     backfills::backfill_is_translation, download_tiles, dump_cell_data, dump_cell_edit_counts,
-    dump_mod_cell_counts, dump_mod_data, dump_mod_search_index, dump_plugin_data, dump_file_data, dump_games, update,
+    dump_file_data, dump_games, dump_mod_cell_counts, dump_mod_data, dump_mod_search_index,
+    dump_plugin_data, update,
 };
 
 #[derive(FromArgs)]
@@ -24,7 +25,11 @@ struct Args {
     /// the page number to start scraping for mods on nexus mods
     page: usize,
 
-    #[argh(option, short = 'g', default = "String::from(\"skyrimspecialedition\")")]
+    #[argh(
+        option,
+        short = 'g',
+        default = "String::from(\"skyrimspecialedition\")"
+    )]
     /// name of nexus game to scrape (e.g. "skyrim" or "skyrimspecialedition")
     game: String,
 
@@ -121,5 +126,5 @@ pub async fn main() -> Result<()> {
         return backfill_is_translation(&pool).await;
     }
 
-    return update(&pool, args.page, &args.game, args.full).await;
+    update(&pool, args.page, &args.game, args.full).await
 }

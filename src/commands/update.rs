@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{NaiveDateTime, NaiveTime};
-use humansize::{file_size_opts, FileSize};
+use humansize::{format_size_i, DECIMAL};
 use reqwest::StatusCode;
 use std::collections::HashSet;
 use std::io::SeekFrom;
@@ -36,7 +36,7 @@ pub async fn update(
             .build()?;
 
         let game_id = get_game_id(game_name).expect("valid game name");
-        let game = game::insert(&pool, game_name, game_id).await?;
+        let game = game::insert(pool, game_name, game_id).await?;
 
         while has_next_page {
             if !full && pages_with_no_updates >= 50 {
@@ -46,13 +46,18 @@ pub async fn update(
 
             let page_span = info_span!("page", page, game_name, include_translations);
             let _page_span = page_span.enter();
-            let mod_list_resp =
-                nexus_scraper::get_mod_list_page(&client, page, game.nexus_game_id, include_translations).await?;
+            let mod_list_resp = nexus_scraper::get_mod_list_page(
+                &client,
+                page,
+                game.nexus_game_id,
+                include_translations,
+            )
+            .await?;
             let scraped = mod_list_resp.scrape_mods()?;
 
             has_next_page = scraped.has_next_page;
             let processed_mods = game_mod::bulk_get_last_updated_by_nexus_mod_ids(
-                &pool,
+                pool,
                 game.id,
                 &scraped
                     .mods
@@ -101,7 +106,7 @@ pub async fn update(
                 })
                 .collect();
 
-            let mods = game_mod::batched_insert(&pool, &mods_to_create_or_update).await?;
+            let mods = game_mod::batched_insert(pool, &mods_to_create_or_update).await?;
 
             if mods.is_empty() {
                 pages_with_no_updates += 1;
@@ -112,7 +117,8 @@ pub async fn update(
             for db_mod in mods {
                 let mod_span = info_span!("mod", name = ?&db_mod.name, id = &db_mod.nexus_mod_id);
                 let _mod_span = mod_span.enter();
-                let files_resp = nexus_api::files::get(&client, game_name, db_mod.nexus_mod_id).await?;
+                let files_resp =
+                    nexus_api::files::get(&client, game_name, db_mod.nexus_mod_id).await?;
 
                 debug!(duration = ?files_resp.wait, "sleeping");
                 sleep(files_resp.wait).await;
@@ -135,7 +141,7 @@ pub async fn update(
                     });
 
                 let processed_file_ids: HashSet<i32> =
-                    file::get_processed_nexus_file_ids_by_mod_id(&pool, db_mod.id)
+                    file::get_processed_nexus_file_ids_by_mod_id(pool, db_mod.id)
                         .await?
                         .into_iter()
                         .collect();
@@ -150,7 +156,7 @@ pub async fn update(
                         continue;
                     }
                     let db_file = file::insert(
-                        &pool,
+                        pool,
                         &file::UnsavedFile {
                             name: api_file.name,
                             file_name: api_file.file_name,
@@ -174,7 +180,7 @@ pub async fn update(
                                     info!(
                                         "file metadata does not contain a plugin, skip downloading"
                                     );
-                                    file::update_has_plugin(&pool, db_file.id, false).await?;
+                                    file::update_has_plugin(pool, db_file.id, false).await?;
                                     continue;
                                 }
                             } else {
@@ -186,10 +192,7 @@ pub async fn update(
                         }
                     };
 
-                    let humanized_size = api_file
-                        .size
-                        .file_size(file_size_opts::CONVENTIONAL)
-                        .expect("unable to create human-readable file size");
+                    let humanized_size = format_size_i(api_file.size, DECIMAL);
                     info!(size = %humanized_size, "decided to download file");
                     let download_link_resp = nexus_api::download_link::get(
                         &client,
@@ -205,7 +208,7 @@ pub async fn update(
                                     status = ?reqwest_err.status(),
                                     "failed to get download link for file, skipping file"
                                 );
-                                file::update_has_download_link(&pool, db_file.id, false).await?;
+                                file::update_has_download_link(pool, db_file.id, false).await?;
                                 continue;
                             }
                         }
@@ -215,7 +218,7 @@ pub async fn update(
                     let mut tokio_file = match download_link_resp.download_file(&client).await {
                         Ok(file) => {
                             info!(bytes = api_file.size, "download finished");
-                            file::update_downloaded_at(&pool, db_file.id).await?;
+                            file::update_downloaded_at(pool, db_file.id).await?;
                             file
                         }
                         Err(err) => {
@@ -228,14 +231,14 @@ pub async fn update(
                     tokio_file.seek(SeekFrom::Start(0)).await?;
                     if let Err(err) = tokio_file.read_exact(&mut initial_bytes).await {
                         warn!(error = %err, "failed to read initial bytes, skipping file");
-                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                        file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
                         continue;
                     }
                     let kind = match infer::get(&initial_bytes) {
                         Some(kind) => kind,
                         None => {
                             warn!(initial_bytes = ?initial_bytes, "unable to determine file type of archive, skipping file");
-                            file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                            file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
                             continue;
                         }
                     };
@@ -253,7 +256,7 @@ pub async fn update(
                             let mut file = tokio_file.try_clone().await?.into_std().await;
                             match extract_with_unrar(
                                 &mut file,
-                                &pool,
+                                pool,
                                 &db_file,
                                 &db_mod,
                                 game_name,
@@ -266,7 +269,15 @@ pub async fn update(
                                     // unrar failed to extract rar file (e.g. archive has unicode filenames)
                                     // Attempt to uncompress the archive using `7z` unix command instead
                                     warn!(error = %err, "failed to extract file with unrar, extracting whole archive with 7z instead");
-                                    extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
+                                    extract_with_7zip(
+                                        &mut file,
+                                        pool,
+                                        &db_file,
+                                        &db_mod,
+                                        game_name,
+                                        checked_metadata,
+                                    )
+                                    .await
                                 }
                             }?;
                         }
@@ -274,8 +285,10 @@ pub async fn update(
                             tokio_file.seek(SeekFrom::Start(0)).await?;
                             let mut file = tokio_file.try_clone().await?.into_std().await;
 
-                            match extract_with_compress_tools(&mut file, &pool, &db_file, &db_mod, game_name)
-                                .await
+                            match extract_with_compress_tools(
+                                &mut file, pool, &db_file, &db_mod, game_name,
+                            )
+                            .await
                             {
                                 Ok(_) => Ok(()),
                                 Err(err) => {
@@ -289,11 +302,24 @@ pub async fn update(
                                         // compress_tools or libarchive failed to extract zip/7z file (e.g. archive is deflate64 compressed)
                                         // Attempt to uncompress the archive using `7z` unix command instead
                                         warn!(error = %err, "failed to extract file with compress_tools, extracting whole archive with 7z instead");
-                                        extract_with_7zip(&mut file, &pool, &db_file, &db_mod, game_name, checked_metadata).await
-                                    } else if kind.mime_type() == "application/vnd.microsoft.portable-executable" {
+                                        extract_with_7zip(
+                                            &mut file,
+                                            pool,
+                                            &db_file,
+                                            &db_mod,
+                                            game_name,
+                                            checked_metadata,
+                                        )
+                                        .await
+                                    } else if kind.mime_type()
+                                        == "application/vnd.microsoft.portable-executable"
+                                    {
                                         // we tried to extract this .exe file, but it's not an archive so there's nothing we can do
                                         warn!("archive is an .exe file that cannot be extracted, skipping file");
-                                        file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                                        file::update_unable_to_extract_plugins(
+                                            pool, db_file.id, true,
+                                        )
+                                        .await?;
                                         continue;
                                     } else {
                                         Err(err)
@@ -307,7 +333,7 @@ pub async fn update(
                     sleep(download_link_resp.wait).await;
                 }
 
-                game_mod::update_last_updated_files_at(&pool, db_mod.id).await?;
+                game_mod::update_last_updated_files_at(pool, db_mod.id).await?;
             }
 
             page += 1;

@@ -3,8 +3,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, info_span};
 
-use crate::nexus_scraper;
 use crate::nexus_api::SSE_GAME_ID;
+use crate::nexus_scraper;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -25,7 +25,8 @@ pub async fn backfill_is_translation(pool: &sqlx::Pool<sqlx::Postgres>) -> Resul
     while has_next_page {
         let page_span = info_span!("page", page);
         let _page_span = page_span.enter();
-        let mod_list_resp = nexus_scraper::get_mod_list_page(&client, page, SSE_GAME_ID, true).await?;
+        let mod_list_resp =
+            nexus_scraper::get_mod_list_page(&client, page, SSE_GAME_ID, true).await?;
         let scraped = mod_list_resp.scrape_mods()?;
         let scraped_ids: Vec<i32> = scraped.mods.iter().map(|m| m.nexus_mod_id).collect();
 

@@ -16,7 +16,12 @@ pub struct DownloadLinkResponse {
 }
 
 #[instrument(skip(client))]
-pub async fn get(client: &Client, game_name: &str, mod_id: i32, file_id: i64) -> Result<DownloadLinkResponse> {
+pub async fn get(
+    client: &Client,
+    game_name: &str,
+    mod_id: i32,
+    file_id: i64,
+) -> Result<DownloadLinkResponse> {
     for attempt in 1..=3 {
         let res = match client
             .get(format!(

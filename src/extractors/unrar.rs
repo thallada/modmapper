@@ -37,7 +37,7 @@ pub async fn extract_with_unrar(
         Err(_) => {
             if !checked_metadata {
                 warn!("failed to read archive and server has no metadata, skipping file");
-                file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
                 return Ok(());
             } else {
                 error!("failed to read archive, but server had metadata");
@@ -58,14 +58,14 @@ pub async fn extract_with_unrar(
         let mut extract = match extract {
             Err(err) => {
                 warn!(error = %err, "failed to extract with unrar");
-                file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+                file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
                 return Ok(());
             }
             Ok(extract) => extract,
         };
         if let Err(err) = extract.process() {
             warn!(error = %err, "failed to extract with unrar");
-            file::update_unable_to_extract_plugins(&pool, db_file.id, true).await?;
+            file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
             return Ok(());
         }
 
@@ -77,9 +77,9 @@ pub async fn extract_with_unrar(
             let mut plugin_buf = std::fs::read(temp_dir.path().join(file_path))?;
             process_plugin(
                 &mut plugin_buf,
-                &pool,
-                &db_file,
-                &db_mod,
+                pool,
+                db_file,
+                db_mod,
                 &file_path.to_string_lossy(),
                 game_name,
             )

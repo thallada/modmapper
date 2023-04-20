@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use sqlx::types::Json;
+use sqlx::FromRow;
 use tracing::instrument;
 
 use super::hash_to_string;

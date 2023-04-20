@@ -57,7 +57,7 @@ impl<'a> Extractor<'a> {
         self.file.seek(SeekFrom::Start(0))?;
         let mut buf = Vec::default();
         info!("uncompressing plugin file from downloaded archive");
-        uncompress_archive_file(&mut self.file, &mut buf, &file_path)?;
+        uncompress_archive_file(&mut self.file, &mut buf, file_path)?;
         Ok(buf)
     }
 }
@@ -95,8 +95,16 @@ pub async fn extract_with_compress_tools(
         let (file_path, mut plugin_buf) = plugin?;
         let plugin_span = info_span!("plugin", name = ?file_path);
         let _plugin_span = plugin_span.enter();
-        let safe_file_path = file_path.replace("\\", "/");
-        process_plugin(&mut plugin_buf, &pool, &db_file, &db_mod, &safe_file_path, game_name).await?;
+        let safe_file_path = file_path.replace('\\', "/");
+        process_plugin(
+            &mut plugin_buf,
+            pool,
+            db_file,
+            db_mod,
+            &safe_file_path,
+            game_name,
+        )
+        .await?;
     }
     Ok(())
 }
