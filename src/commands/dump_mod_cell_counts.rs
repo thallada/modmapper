@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::models::game_mod;
 
@@ -18,7 +18,7 @@ pub async fn dump_mod_cell_counts(pool: &sqlx::Pool<sqlx::Postgres>, path: &str)
             break;
         }
         for mod_cell_count in mod_cell_counts {
-            info!(
+            debug!(
                 page = page,
                 nexus_mod_id = mod_cell_count.nexus_mod_id,
                 count = mod_cell_count.cells.unwrap_or(0),

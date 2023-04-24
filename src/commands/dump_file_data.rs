@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::models::file;
 
@@ -12,6 +12,7 @@ pub async fn dump_file_data(
     dir: &str,
     updated_after: Option<NaiveDateTime>,
 ) -> Result<()> {
+    let mut file_count = 0;
     let mut page = 1;
     let page_size = 20;
     let mut last_id = None;
@@ -26,7 +27,7 @@ pub async fn dump_file_data(
             let path = Path::new(&dir);
             std::fs::create_dir_all(path)?;
             let path = path.join(format!("{}.json", file_with_cells.nexus_file_id));
-            info!(
+            debug!(
                 page = page,
                 nexus_file_id = file_with_cells.nexus_file_id,
                 "dumping file data to {}",
@@ -35,8 +36,10 @@ pub async fn dump_file_data(
             let mut file = File::create(path)?;
             write!(file, "{}", serde_json::to_string(&file_with_cells)?)?;
             last_id = Some(file_with_cells.id);
+            file_count += 1;
         }
         page += 1;
     }
+    info!("dumped {} file data files", file_count);
     Ok(())
 }

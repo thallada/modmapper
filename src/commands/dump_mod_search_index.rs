@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::models::game;
 use crate::models::game_mod;
@@ -29,7 +29,7 @@ pub async fn dump_mod_search_index(
             break;
         }
         for mod_for_search in mods {
-            info!(
+            debug!(
                 page = page,
                 nexus_mod_id = mod_for_search.nexus_mod_id,
                 "read mod name for search index"

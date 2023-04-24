@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::models::{format_radix, plugin};
 
@@ -12,6 +12,7 @@ pub async fn dump_plugin_data(
     dir: &str,
     updated_after: Option<NaiveDateTime>,
 ) -> Result<()> {
+    let mut plugin_count = 0;
     let mut page: u32 = 1;
     let page_size = 20;
     let mut last_hash = None;
@@ -32,7 +33,7 @@ pub async fn dump_plugin_data(
             let path = Path::new(&dir);
             create_dir_all(path)?;
             let path = path.join(format!("{}.json", format_radix(plugin.hash as u64, 36)));
-            info!(
+            debug!(
                 page = page,
                 hash = plugin.hash,
                 "dumping plugin data to {}",
@@ -42,8 +43,10 @@ pub async fn dump_plugin_data(
             let json_val = serde_json::to_string(&plugin)?;
             write!(file, "{}", json_val)?;
             last_hash = Some(plugin.hash);
+            plugin_count += 1;
         }
         page += 1;
     }
+    info!("dumped {} plugin data files", plugin_count);
     Ok(())
 }
