@@ -31,6 +31,7 @@ pub struct ModListScrape<'a> {
 pub async fn get_mod_list_page(
     client: &Client,
     page: usize,
+    game_name: &str,
     game_id: i32,
     include_translations: bool,
 ) -> Result<ModListResponse> {
@@ -41,6 +42,12 @@ pub async fn get_mod_list_page(
             match include_translations { true => "yes", false => "no" },
             page
         ))
+        .header("host", "www.nexusmods.com")
+        .header("referrer", format!("https://www.nexusmods.com/{}/mods/", game_name))
+        .header("sec-fetch-dest", "empty")
+        .header("sec-fetch-mode", "cors")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-requested-with", "XMLHttpRequest")
         .send()
         .await?
         .error_for_status()?;

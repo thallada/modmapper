@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::{env, time::Duration};
 use tracing::{info, instrument};
 
-use super::{rate_limit_wait_duration, warn_and_sleep, USER_AGENT};
+use super::{rate_limit_wait_duration, warn_and_sleep};
 
 pub struct FilesResponse {
     pub wait: Duration,
@@ -34,7 +34,6 @@ pub async fn get(client: &Client, game_name: &str, nexus_mod_id: i32) -> Result<
             ))
             .header("accept", "application/json")
             .header("apikey", env::var("NEXUS_API_KEY")?)
-            .header("user-agent", USER_AGENT)
             .send()
             .await
         {

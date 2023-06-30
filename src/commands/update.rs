@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::{NaiveDateTime, NaiveTime};
 use humansize::{format_size_i, DECIMAL};
 use reqwest::StatusCode;
+use reqwest::header::{HeaderMap, HeaderValue};
 use std::collections::HashSet;
 use std::io::SeekFrom;
 use std::time::Duration;
@@ -13,7 +14,7 @@ use crate::extractors::{self, extract_with_7zip, extract_with_compress_tools, ex
 use crate::models::file;
 use crate::models::game;
 use crate::models::{game_mod, game_mod::UnsavedMod};
-use crate::nexus_api::{self, get_game_id};
+use crate::nexus_api::{self, get_game_id, USER_AGENT};
 use crate::nexus_scraper;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(7200); // 2 hours
@@ -30,9 +31,12 @@ pub async fn update(
         let mut has_next_page = true;
         let mut pages_with_no_updates = 0;
 
+        let mut headers = HeaderMap::new();
+        headers.insert("user-agent", HeaderValue::from_static(USER_AGENT));
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
+            .default_headers(headers)
             .build()?;
 
         let game_id = get_game_id(game_name).expect("valid game name");
@@ -49,6 +53,7 @@ pub async fn update(
             let mod_list_resp = nexus_scraper::get_mod_list_page(
                 &client,
                 page,
+                game_name,
                 game.nexus_game_id,
                 include_translations,
             )

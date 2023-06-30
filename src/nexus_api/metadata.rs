@@ -5,7 +5,7 @@ use std::env;
 use tracing::{info, instrument};
 
 use super::files::ApiFile;
-use super::{warn_and_sleep, USER_AGENT};
+use super::warn_and_sleep;
 
 fn has_plugin(json: &Value) -> Result<bool> {
     let node_type = json
@@ -50,7 +50,6 @@ pub async fn contains_plugin(client: &Client, api_file: &ApiFile<'_>) -> Result<
                 .get(metadata_link)
                 .header("accept", "application/json")
                 .header("apikey", env::var("NEXUS_API_KEY")?)
-                .header("user-agent", USER_AGENT)
                 .send()
                 .await
             {
