@@ -4,7 +4,7 @@ Downloads mods from nexus, parses the plugins inside, and saves data to a postgr
 
 ## Development Install
 
-1. Install and run postgres.
+1. Install and run postgres (v15 or later).
 2. Create postgres user and database (and add uuid extension while you're there
    ):
 
@@ -13,6 +13,7 @@ createuser modmapper
 createdb modmapper
 sudo -u postgres -i psql
 postgres=# ALTER DATABASE modmapper OWNER TO modmapper;
+postgres=# ALTER USER modmapper CREATEDB;
 \password modmapper
 
 # Or, on Windows in PowerShell:
