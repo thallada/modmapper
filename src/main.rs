@@ -13,7 +13,8 @@ mod nexus_scraper;
 mod plugin_processor;
 
 use commands::{
-    backfills::backfill_is_translation, download_tiles, dump_cell_data, dump_cell_edit_counts,
+    backfills::backfill_is_base_game, backfills::backfill_is_translation,
+    backfills::deduplicate_interior_cells, download_tiles, dump_cell_data, dump_cell_edit_counts,
     dump_file_data, dump_games, dump_mod_cell_counts, dump_mod_data, dump_mod_search_index,
     dump_plugin_data, update,
 };
@@ -77,6 +78,14 @@ struct Args {
     #[argh(switch)]
     backfill_is_translation: bool,
 
+    /// backfill the is_base_game column in the cells table (for Skyrim.esm)
+    #[argh(switch)]
+    backfill_is_base_game: bool,
+
+    /// deduplicate the interior cells with same form_id and master
+    #[argh(switch)]
+    deduplicate_interior_cells: bool,
+
     /// when dumping data, only dump data for mods or files that have been updated since this date
     #[argh(option, short = 'u')]
     updated_after: Option<NaiveDateTime>,
@@ -124,6 +133,12 @@ pub async fn main() -> Result<()> {
     }
     if args.backfill_is_translation {
         return backfill_is_translation(&pool).await;
+    }
+    if args.backfill_is_base_game {
+        return backfill_is_base_game(&pool).await;
+    }
+    if args.deduplicate_interior_cells {
+        return deduplicate_interior_cells(&pool).await;
     }
 
     update(&pool, args.page, &args.game, args.full).await

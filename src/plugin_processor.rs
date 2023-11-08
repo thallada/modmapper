@@ -15,7 +15,7 @@ use crate::models::{plugin_cell, plugin_cell::UnsavedPluginCell};
 use crate::models::{plugin_world, plugin_world::UnsavedPluginWorld};
 use crate::models::{world, world::UnsavedWorld};
 
-fn get_local_form_id_and_master<'a>(
+pub fn get_local_form_id_and_master<'a>(
     form_id: u32,
     masters: &'a [&str],
     file_name: &'a str,
@@ -124,6 +124,7 @@ pub async fn process_plugin(
                         y: cell.y,
                         world_id,
                         is_persistent: cell.is_persistent,
+                        is_base_game: false,
                     }
                 })
                 .collect();

@@ -1,0 +1,1 @@
+ALTER TABLE "cells" ADD COLUMN "is_base_game" BOOLEAN NOT NULL DEFAULT false;

@@ -15,6 +15,7 @@ pub struct Cell {
     pub y: Option<i32>,
     pub world_id: Option<i32>,
     pub is_persistent: bool,
+    pub is_base_game: bool,
     pub updated_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
 }
@@ -27,6 +28,7 @@ pub struct UnsavedCell<'a> {
     pub y: Option<i32>,
     pub world_id: Option<i32>,
     pub is_persistent: bool,
+    pub is_base_game: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -50,22 +52,24 @@ pub async fn insert(
     y: Option<i32>,
     world_id: Option<i32>,
     is_persistent: bool,
+    is_base_game: bool,
 ) -> Result<Cell> {
     sqlx::query_as!(
         Cell,
         "INSERT INTO cells
-            (form_id, master, x, y, world_id, is_persistent, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+            (form_id, master, x, y, world_id, is_persistent, is_base_game, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
             ON CONFLICT (form_id, master, world_id) DO UPDATE
-            SET (x, y, is_persistent, updated_at) =
-            (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, now())
+            SET (x, y, is_persistent, is_base_game, updated_at) =
+            (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, EXCLUDED.is_base_game, now())
             RETURNING *",
         form_id,
         master,
         x,
         y,
         world_id,
-        is_persistent
+        is_persistent,
+        is_base_game
     )
     .fetch_one(pool)
     .await
@@ -85,6 +89,7 @@ pub async fn batched_insert<'a>(
         let mut ys: Vec<Option<i32>> = vec![];
         let mut world_ids: Vec<Option<i32>> = vec![];
         let mut is_persistents: Vec<bool> = vec![];
+        let mut is_base_games: Vec<bool> = vec![];
         batch.iter().for_each(|unsaved_cell| {
             form_ids.push(unsaved_cell.form_id);
             masters.push(unsaved_cell.master);
@@ -92,15 +97,16 @@ pub async fn batched_insert<'a>(
             ys.push(unsaved_cell.y);
             world_ids.push(unsaved_cell.world_id);
             is_persistents.push(unsaved_cell.is_persistent);
+            is_base_games.push(unsaved_cell.is_base_game);
         });
         saved_cells.append(
             // sqlx doesn't understand arrays of Options with the query_as! macro
             &mut sqlx::query_as(
-                r#"INSERT INTO cells (form_id, master, x, y, world_id, is_persistent, created_at, updated_at)
-                SELECT *, now(), now() FROM UNNEST($1::int[], $2::text[], $3::int[], $4::int[], $5::int[], $6::bool[])
+                r#"INSERT INTO cells (form_id, master, x, y, world_id, is_persistent, is_base_game, created_at, updated_at)
+                SELECT *, now(), now() FROM UNNEST($1::int[], $2::text[], $3::int[], $4::int[], $5::int[], $6::bool[], $7::bool[])
                 ON CONFLICT (form_id, master, world_id) DO UPDATE
-                SET (x, y, is_persistent, updated_at) =
-                (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, now())
+                SET (x, y, is_persistent, is_base_game, updated_at) =
+                (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, EXCLUDED.is_base_game, now())
                 RETURNING *"#,
             )
             .bind(&form_ids)
@@ -109,6 +115,7 @@ pub async fn batched_insert<'a>(
             .bind(&ys)
             .bind(&world_ids)
             .bind(&is_persistents)
+            .bind(&is_base_games)
             .fetch_all(pool)
             .await
             .context("Failed to insert cells")?,
@@ -151,31 +158,62 @@ pub async fn get_cell_data(
     world_id: i32,
     x: i32,
     y: i32,
+    is_base_game_only: bool,
 ) -> Result<CellData> {
-    sqlx::query_as!(
-        CellData,
-        r#"SELECT
-                cells.x,
-                cells.y,
-                cells.is_persistent,
-                cells.form_id,
-                COUNT(DISTINCT plugins.id) as plugins_count,
-                COUNT(DISTINCT files.id) as files_count,
-                COUNT(DISTINCT mods.id) as mods_count,
-                json_agg(DISTINCT mods.*) as mods
-            FROM cells
-            JOIN plugin_cells on cells.id = cell_id
-            JOIN plugins ON plugins.id = plugin_id
-            JOIN files ON files.id = plugins.file_id
-            JOIN mods ON mods.id = files.mod_id
-            WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 and cells.y = $4
-            GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
-        master,
-        world_id,
-        x,
-        y
-    )
-    .fetch_one(pool)
-    .await
-    .context("Failed get cell data")
+    if is_base_game_only {
+        sqlx::query_as!(
+            CellData,
+            r#"SELECT
+                    cells.x,
+                    cells.y,
+                    cells.is_persistent,
+                    cells.form_id,
+                    COUNT(DISTINCT plugins.id) as plugins_count,
+                    COUNT(DISTINCT files.id) as files_count,
+                    COUNT(DISTINCT mods.id) as mods_count,
+                    json_agg(DISTINCT mods.*) as mods
+                FROM cells
+                JOIN plugin_cells on cells.id = cell_id
+                JOIN plugins ON plugins.id = plugin_id
+                JOIN files ON files.id = plugins.file_id
+                JOIN mods ON mods.id = files.mod_id
+                WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 and cells.y = $4
+                GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
+            master,
+            world_id,
+            x,
+            y
+        )
+        .fetch_one(pool)
+        .await
+        .context("Failed get cell data")
+    } else {
+        sqlx::query_as!(
+            CellData,
+            r#"SELECT
+                    cells.x,
+                    cells.y,
+                    cells.is_persistent,
+                    cells.form_id,
+                    COUNT(DISTINCT plugins.id) as plugins_count,
+                    COUNT(DISTINCT files.id) as files_count,
+                    COUNT(DISTINCT mods.id) as mods_count,
+                    json_agg(DISTINCT mods.*) as mods
+                FROM cells
+                JOIN plugin_cells on cells.id = cell_id
+                JOIN plugins ON plugins.id = plugin_id
+                JOIN files ON files.id = plugins.file_id
+                JOIN mods ON mods.id = files.mod_id
+                WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 and cells.y = $4 AND is_base_game = true
+                GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
+            master,
+            world_id,
+            x,
+            y
+        )
+        .fetch_one(pool)
+        .await
+        .context("Failed get cell data")
+
+    }
 }
