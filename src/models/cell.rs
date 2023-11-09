@@ -177,7 +177,7 @@ pub async fn get_cell_data(
                 JOIN plugins ON plugins.id = plugin_id
                 JOIN files ON files.id = plugins.file_id
                 JOIN mods ON mods.id = files.mod_id
-                WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 and cells.y = $4
+                WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 AND cells.y = $4 AND is_base_game = true
                 GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
             master,
             world_id,
@@ -204,7 +204,7 @@ pub async fn get_cell_data(
                 JOIN plugins ON plugins.id = plugin_id
                 JOIN files ON files.id = plugins.file_id
                 JOIN mods ON mods.id = files.mod_id
-                WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 and cells.y = $4 AND is_base_game = true
+                WHERE cells.master = $1 AND cells.world_id = $2 AND cells.x = $3 AND cells.y = $4
                 GROUP BY cells.x, cells.y, cells.is_persistent, cells.form_id"#,
             master,
             world_id,
