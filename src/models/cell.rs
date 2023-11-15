@@ -150,6 +150,43 @@ pub async fn count_mod_edits(
     .context("Failed to count mod edits on cell")
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct CellFileEditCount {
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub count: Option<i64>,
+}
+
+#[instrument(level = "debug", skip(pool))]
+pub async fn count_file_edits_in_time_range(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    master: &str,
+    world_id: i32,
+    start_date: NaiveDateTime,
+    end_date: NaiveDateTime,
+) -> Result<Vec<CellFileEditCount>> {
+    sqlx::query_as!(
+        CellFileEditCount,
+        "SELECT cells.x, cells.y, COUNT(DISTINCT files.id)
+            FROM cells
+            JOIN plugin_cells on cells.id = cell_id
+            JOIN plugins ON plugins.id = plugin_id
+            JOIN files ON files.id = plugins.file_id
+            WHERE master = $1 AND world_id = $2
+            AND cells.x IS NOT NULL and cells.y IS NOT NULL
+            AND files.uploaded_at BETWEEN $3 AND $4
+            GROUP BY cells.x, cells.y
+        ",
+        master,
+        world_id,
+        start_date,
+        end_date,
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to count file-based mod edits on cell")
+}
+
 /// Returns cell properties plus a list of mods that edit the cell
 #[instrument(level = "debug", skip(pool))]
 pub async fn get_cell_data(
