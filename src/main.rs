@@ -113,7 +113,6 @@ pub async fn main() -> Result<()> {
     }
     if let Some(path) = args.dump_edits_over_time {
         return dump_cell_edit_counts_over_time(
-            &pool,
             NaiveDate::from_ymd_opt(2011, 11, 11).unwrap().and_hms_opt(0, 0, 0).unwrap(),
             Utc::now().naive_utc(),
             &path,
