@@ -47,9 +47,8 @@ pub async fn backfill_is_base_game(pool: &sqlx::Pool<sqlx::Postgres>) -> Result<
             } else {
                 None
             };
-            let (form_id, master) =
-                get_local_form_id_and_master(cell.form_id, &masters, file_name)
-                    .expect("form_id is a valid i32");
+            let (form_id, master) = get_local_form_id_and_master(cell.form_id, &masters, file_name)
+                .expect("form_id is a valid i32");
             UnsavedCell {
                 form_id,
                 master,
@@ -63,8 +62,8 @@ pub async fn backfill_is_base_game(pool: &sqlx::Pool<sqlx::Postgres>) -> Result<
         .collect();
     let db_cells = cell::batched_insert(pool, &base_cells).await?;
     info!("Upserted {} Skyrim.esm base cells", db_cells.len());
-    // This works for exterior cells, but there's a bug with the unique index on cells that 
-    // creates duplicate interior cells. To fix that, I need to upgrade postgres to 
+    // This works for exterior cells, but there's a bug with the unique index on cells that
+    // creates duplicate interior cells. To fix that, I need to upgrade postgres to
     // 15 or later, migate the data to the new db cluster, consolidate all of the duplicate cells
     // into one cell in a separate backfill command, then fix the unique index.
     Ok(())

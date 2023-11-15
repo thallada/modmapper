@@ -4,10 +4,9 @@
 /// rows referencing the duplicate cells are updated to reference the chosen cell.
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgDatabaseError;
 use sqlx::types::Json;
 use sqlx::FromRow;
-use tracing::{info, warn};
+use tracing::info;
 
 const PAGE_SIZE: i64 = 100;
 
@@ -84,10 +83,10 @@ pub async fn deduplicate_interior_cells(pool: &sqlx::Pool<sqlx::Postgres>) -> Re
             // plugins that have multiple cells with the same form_id. For these duplicate
             // plugin_cells with the same plugin_id, I just arbitrarily choose one and delete
             // the others (since it's undefined behavior of which duplicate record should "win"
-            // out in this case anyways). In the case of exterior cells, where the duplicate 
-            // interior cell bug is not a problem, the last processed cell record in the plugin 
-            // wins since `process_plugin` uses an upsert method which updates existing 
-            // `plugin_cells` if it tries to insert a new one that conflicts with an existing one. 
+            // out in this case anyways). In the case of exterior cells, where the duplicate
+            // interior cell bug is not a problem, the last processed cell record in the plugin
+            // wins since `process_plugin` uses an upsert method which updates existing
+            // `plugin_cells` if it tries to insert a new one that conflicts with an existing one.
             // So I am effectively retroactively doing the same here for interior cells.
             let plugin_cells_delete = sqlx::query!(
                 r#"DELETE FROM plugin_cells

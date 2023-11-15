@@ -120,22 +120,22 @@ pub async fn main() -> Result<()> {
         .await;
     }
     if let Some(dir) = args.cell_data {
-        return dump_cell_data(&pool, &dir).await;
+        return dump_cell_data(&dir).await;
     }
     if let Some(dir) = args.mod_data {
-        return dump_mod_data(&pool, &dir, args.updated_after).await;
+        return dump_mod_data(&dir, args.updated_after).await;
     }
     if let Some(path) = args.mod_search_index {
-        return dump_mod_search_index(&pool, &args.game, &path).await;
+        return dump_mod_search_index(&args.game, &path).await;
     }
     if let Some(path) = args.mod_cell_counts {
-        return dump_mod_cell_counts(&pool, &path).await;
+        return dump_mod_cell_counts(&path).await;
     }
     if let Some(path) = args.plugin_data {
-        return dump_plugin_data(&pool, &path, args.updated_after).await;
+        return dump_plugin_data(&path, args.updated_after).await;
     }
     if let Some(path) = args.file_data {
-        return dump_file_data(&pool, &path, args.updated_after).await;
+        return dump_file_data(&path, args.updated_after).await;
     }
     if let Some(path) = args.game_data {
         return dump_games(&pool, &path).await;
