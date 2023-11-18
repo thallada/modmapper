@@ -1,15 +1,35 @@
 use crate::models::cell::{self, CellFileEditCount};
 use anyhow::Result;
-use chrono::{Duration, NaiveDateTime};
+use chrono::{Duration, NaiveDateTime, Months};
 use sqlx::postgres::PgPoolOptions;
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, str::FromStr};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info};
 
+#[derive(Debug)]
+pub enum TimeStep {
+    Day,
+    Week,
+    Month,
+}
+
+impl FromStr for TimeStep {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "day" => Ok(TimeStep::Day),
+            "week" => Ok(TimeStep::Week),
+            "month" => Ok(TimeStep::Month),
+            _ => Err(format!("invalid time step: {}", s)),
+        }
+    }
+}
+
 pub async fn dump_cell_edit_counts_over_time(
     start_date: NaiveDateTime,
     end_date: NaiveDateTime,
+    time_step: TimeStep,
     path: &str,
 ) -> Result<()> {
     let mut pool = PgPoolOptions::new()
@@ -28,7 +48,11 @@ pub async fn dump_cell_edit_counts_over_time(
                 .connect(&env::var("DATABASE_URL")?)
                 .await?;
         }
-        let next_date = current_date + Duration::weeks(1);
+        let next_date = match &time_step {
+            TimeStep::Day => current_date + Duration::days(1),
+            TimeStep::Week => current_date + Duration::weeks(1),
+            TimeStep::Month => current_date.checked_add_months(Months::new(1)).unwrap(),
+        };
         let mut cell_file_edit_counts = HashMap::new();
         let counts =
             cell::count_file_edits_in_time_range(&pool, "Skyrim.esm", 1, current_date, next_date)

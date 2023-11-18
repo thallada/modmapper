@@ -14,7 +14,7 @@ pub mod update;
 pub use download_tiles::download_tiles;
 pub use dump_cell_data::dump_cell_data;
 pub use dump_cell_edit_counts::dump_cell_edit_counts;
-pub use dump_cell_edit_counts_over_time::dump_cell_edit_counts_over_time;
+pub use dump_cell_edit_counts_over_time::{dump_cell_edit_counts_over_time, TimeStep};
 pub use dump_file_data::dump_file_data;
 pub use dump_games::dump_games;
 pub use dump_mod_cell_counts::dump_mod_cell_counts;

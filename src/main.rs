@@ -1,6 +1,6 @@
 use anyhow::Result;
 use argh::FromArgs;
-use chrono::{NaiveDateTime, NaiveDate, Utc};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use dotenv::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -16,7 +16,7 @@ use commands::{
     backfills::backfill_is_base_game, backfills::backfill_is_translation,
     backfills::deduplicate_interior_cells, download_tiles, dump_cell_data, dump_cell_edit_counts,
     dump_cell_edit_counts_over_time, dump_file_data, dump_games, dump_mod_cell_counts,
-    dump_mod_data, dump_mod_search_index, dump_plugin_data, update,
+    dump_mod_data, dump_mod_search_index, dump_plugin_data, update, TimeStep,
 };
 
 #[derive(FromArgs)]
@@ -42,9 +42,15 @@ struct Args {
     #[argh(option, short = 'e')]
     dump_edits: Option<String>,
 
-    /// file to output the cell mod edit counts over time as json
+    /// file to output the cell mod edit counts over time as json (time_step option required with 
+    /// this option)
     #[argh(option, short = 'E')]
     dump_edits_over_time: Option<String>,
+
+    /// the span of time to group cell edit counts into (day, week, or month) when dumping cell 
+    /// edits (only relevant for use with dump_edits_over_time option)
+    #[argh(option, short = 'T')]
+    time_step: Option<TimeStep>,
 
     /// folder to output all cell data as json files
     #[argh(option, short = 'c')]
@@ -112,12 +118,20 @@ pub async fn main() -> Result<()> {
         return dump_cell_edit_counts(&pool, &path).await;
     }
     if let Some(path) = args.dump_edits_over_time {
-        return dump_cell_edit_counts_over_time(
-            NaiveDate::from_ymd_opt(2011, 11, 11).unwrap().and_hms_opt(0, 0, 0).unwrap(),
-            Utc::now().naive_utc(),
-            &path,
-        )
-        .await;
+        if let Some(time_step) = args.time_step {
+            return dump_cell_edit_counts_over_time(
+                NaiveDate::from_ymd_opt(2011, 11, 11)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap(),
+                Utc::now().naive_utc(),
+                time_step,
+                &path,
+            )
+            .await;
+        } else {
+            panic!("time_step option required with dump_edits_over_time option");
+        }
     }
     if let Some(dir) = args.cell_data {
         return dump_cell_data(&dir).await;
