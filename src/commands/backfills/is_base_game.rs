@@ -60,7 +60,7 @@ pub async fn backfill_is_base_game(pool: &sqlx::Pool<sqlx::Postgres>) -> Result<
             }
         })
         .collect();
-    let db_cells = cell::batched_insert(pool, &base_cells).await?;
+    let db_cells = cell::batched_insert(pool, &base_cells, true).await?;
     info!("Upserted {} Skyrim.esm base cells", db_cells.len());
     // This works for exterior cells, but there's a bug with the unique index on cells that
     // creates duplicate interior cells. To fix that, I need to upgrade postgres to

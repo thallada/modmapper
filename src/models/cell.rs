@@ -80,6 +80,7 @@ pub async fn insert(
 pub async fn batched_insert<'a>(
     pool: &sqlx::Pool<sqlx::Postgres>,
     cells: &[UnsavedCell<'a>],
+    allow_upserting_base_game_cells: bool,
 ) -> Result<Vec<Cell>> {
     let mut saved_cells = vec![];
     for batch in cells.chunks(BATCH_SIZE) {
@@ -99,27 +100,58 @@ pub async fn batched_insert<'a>(
             is_persistents.push(unsaved_cell.is_persistent);
             is_base_games.push(unsaved_cell.is_base_game);
         });
-        saved_cells.append(
-            // sqlx doesn't understand arrays of Options with the query_as! macro
-            &mut sqlx::query_as(
-                r#"INSERT INTO cells (form_id, master, x, y, world_id, is_persistent, is_base_game, created_at, updated_at)
-                SELECT *, now(), now() FROM UNNEST($1::int[], $2::text[], $3::int[], $4::int[], $5::int[], $6::bool[], $7::bool[])
-                ON CONFLICT (form_id, master, world_id) DO UPDATE
-                SET (x, y, is_persistent, is_base_game, updated_at) =
-                (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, EXCLUDED.is_base_game, now())
-                RETURNING *"#,
-            )
-            .bind(&form_ids)
-            .bind(&masters)
-            .bind(&xs)
-            .bind(&ys)
-            .bind(&world_ids)
-            .bind(&is_persistents)
-            .bind(&is_base_games)
-            .fetch_all(pool)
-            .await
-            .context("Failed to insert cells")?,
-        );
+        if allow_upserting_base_game_cells {
+            saved_cells.append(
+                // sqlx doesn't understand arrays of Options with the query_as! macro
+                // NOTE: allows overwriting base game cells. This should only be run in the
+                // `is_base_game` backfill in order to seed the database with base game cells.
+                &mut sqlx::query_as(
+                    r#"INSERT INTO cells (form_id, master, x, y, world_id, is_persistent, is_base_game, created_at, updated_at)
+                    SELECT *, now(), now() FROM UNNEST($1::int[], $2::text[], $3::int[], $4::int[], $5::int[], $6::bool[], $7::bool[])
+                    ON CONFLICT (form_id, master, world_id) DO UPDATE
+                    SET (x, y, is_persistent, is_base_game, updated_at) =
+                    (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, EXCLUDED.is_base_game, now())
+                    RETURNING *"#,
+                )
+                .bind(&form_ids)
+                .bind(&masters)
+                .bind(&xs)
+                .bind(&ys)
+                .bind(&world_ids)
+                .bind(&is_persistents)
+                .bind(&is_base_games)
+                .fetch_all(pool)
+                .await
+                .context("Failed to insert cells")?,
+            );
+        } else {
+            saved_cells.append(
+                // sqlx doesn't understand arrays of Options with the query_as! macro
+                // NOTE: excludes upserts on cells that have is_base_game = true since if we are trying
+                // to update base game cells that means a mod bundled the base game Skyrim.esm and we
+                // should ignore it. Additionally, overwriting `is_base_game` to false here will break dumping cell
+                // data since we rely on that field to find edits to Skyrim cells in `get_cell_data`.
+                &mut sqlx::query_as(
+                    r#"INSERT INTO cells (form_id, master, x, y, world_id, is_persistent, is_base_game, created_at, updated_at)
+                    SELECT *, now(), now() FROM UNNEST($1::int[], $2::text[], $3::int[], $4::int[], $5::int[], $6::bool[], $7::bool[])
+                    ON CONFLICT (form_id, master, world_id) DO UPDATE
+                    SET (x, y, is_persistent, is_base_game, updated_at) =
+                    (EXCLUDED.x, EXCLUDED.y, EXCLUDED.is_persistent, EXCLUDED.is_base_game, now())
+                    WHERE NOT cells.is_base_game
+                    RETURNING *"#,
+                )
+                .bind(&form_ids)
+                .bind(&masters)
+                .bind(&xs)
+                .bind(&ys)
+                .bind(&world_ids)
+                .bind(&is_persistents)
+                .bind(&is_base_games)
+                .fetch_all(pool)
+                .await
+                .context("Failed to insert cells")?,
+            );
+        }
     }
     Ok(saved_cells)
 }
@@ -251,6 +283,5 @@ pub async fn get_cell_data(
         .fetch_one(pool)
         .await
         .context("Failed get cell data")
-
     }
 }

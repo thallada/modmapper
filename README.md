@@ -38,7 +38,7 @@ RUST_LOG=mod_mapper=debug
    [`sqlx_cli`](https://github.com/launchbadge/sqlx/tree/master/sqlx-cli) with
    `cargo install sqlx-cli --no-default-features --features postgres`
 5. Run `sqlx migrate --source migrations run` which will run all the database migrations.
-6. Get your personal Nexus API token from your profile settings and add it to 
+6. Get your personal Nexus API token from your profile settings and add it to
    the `.env` file:
 
 ```
@@ -46,12 +46,12 @@ NEXUS_API_KEY=...
 ```
 
 7. Build the release binary by running `cargo build --release`.
-8. Run `./target/release/modmapper --backfill-is-game-cell` to pre-populate the 
-   database with worlds and cells from the base game's Skyrim.esm. (This is so 
-that the base game cells can later be differentiated from cells in plugins that 
-also happen to be named Skyrim.esm and have cells that reference a world with 
-the same form ID as Tamriel.)
-9. See `./target/release/modmapper -h` for further commands or run `./scripts/update.sh` to start populating the database with scraped mods and dumping the data to JSON files.
+8. Run `./target/release/mod-mapper --backfill-is-base-game` to pre-populate the
+   database with worlds and cells from the base game's Skyrim.esm. (This is so
+   that the base game cells can later be differentiated from cells in plugins that
+   also happen to be named Skyrim.esm and have cells that reference a world with
+   the same form ID as Tamriel.)
+9. See `./target/release/mod-mapper -h` for further commands or run `./scripts/update.sh` to start populating the database with scraped mods and dumping the data to JSON files.
 
 ## Sync and Backup Setup
 

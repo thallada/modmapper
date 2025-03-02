@@ -128,7 +128,7 @@ pub async fn process_plugin(
                     }
                 })
                 .collect();
-            let db_cells = cell::batched_insert(&pool, &cells).await?;
+            let db_cells = cell::batched_insert(&pool, &cells, false).await?;
             let plugin_cells: Vec<UnsavedPluginCell> = db_cells
                 .iter()
                 .zip(&plugin.cells)
