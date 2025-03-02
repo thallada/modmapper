@@ -21,7 +21,7 @@ pub async fn extract_with_unrar(
     std::io::copy(file, &mut temp_file)?;
 
     let mut plugin_file_paths = Vec::new();
-    let list = Archive::new(&temp_file_path.to_string_lossy().to_string())?.list();
+    let list = Archive::new(&temp_file_path.to_string_lossy().to_string()).open_for_listing();
     match list {
         Ok(list) => {
             for entry in list.flatten() {
@@ -52,21 +52,37 @@ pub async fn extract_with_unrar(
 
     if !plugin_file_paths.is_empty() {
         info!("uncompressing downloaded archive");
-        let extract = Archive::new(&temp_file_path.to_string_lossy().to_string())?
-            .extract_to(temp_dir.path().to_string_lossy().to_string());
-
-        let mut extract = match extract {
+        match Archive::new(&temp_file_path.to_string_lossy().to_string())
+            .open_for_processing() {
+            Ok(archive) => {
+                match archive.read_header() {
+                    Ok(Some(archive)) => {
+                        match archive.extract_to(temp_dir.path().to_string_lossy().to_string()) {
+                            Err(err) => {
+                                warn!(error = %err, "failed to extract with unrar");
+                                file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
+                                return Ok(());
+                            }
+                            Ok(extract) => (),
+                        }
+                    }
+                    Ok(None) => {
+                        warn!("failed to extract with unrar: no header found");
+                        file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        warn!(error = %err, "failed to extract with unrar");
+                        file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
+                        return Ok(());
+                    }
+                }
+            }
             Err(err) => {
                 warn!(error = %err, "failed to extract with unrar");
                 file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
                 return Ok(());
             }
-            Ok(extract) => extract,
-        };
-        if let Err(err) = extract.process() {
-            warn!(error = %err, "failed to extract with unrar");
-            file::update_unable_to_extract_plugins(pool, db_file.id, true).await?;
-            return Ok(());
         }
 
         for file_path in plugin_file_paths.iter() {
