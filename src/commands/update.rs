@@ -1,10 +1,12 @@
 use anyhow::Result;
 use chrono::{NaiveDateTime, NaiveTime};
 use humansize::{format_size_i, DECIMAL};
-use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::StatusCode;
+use serde_json::json;
 use std::collections::HashSet;
 use std::io::SeekFrom;
+use std::process;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::sleep;
@@ -38,6 +40,7 @@ pub async fn update(
             .connect_timeout(CONNECT_TIMEOUT)
             .default_headers(headers)
             .build()?;
+        let scraper_client = nexus_scraper::NexusScraper::new(client.clone());
 
         let game_id = get_game_id(game_name).expect("valid game name");
         let game = game::insert(pool, game_name, game_id).await?;
@@ -50,29 +53,28 @@ pub async fn update(
 
             let page_span = info_span!("page", page, game_name, include_translations);
             let _page_span = page_span.enter();
-            let mod_list_resp = nexus_scraper::get_mod_list_page(
-                &client,
-                page,
-                game_name,
-                game.nexus_game_id,
-                include_translations,
-            )
-            .await?;
-            let scraped = mod_list_resp.scrape_mods()?;
+            let mods_response = scraper_client
+                .get_mods(
+                    &game.name,
+                    page * nexus_scraper::PAGE_SIZE,
+                    include_translations,
+                )
+                .await?;
 
-            has_next_page = scraped.has_next_page;
+            let scraped_mods = nexus_scraper::convert_mods_to_scraped(&mods_response.mods.nodes)?;
+            info!("scraped {} mods from nexus graphql", scraped_mods.len());
+            has_next_page = scraped_mods.len() == 20;
+
             let processed_mods = game_mod::bulk_get_last_updated_by_nexus_mod_ids(
                 pool,
                 game.id,
-                &scraped
-                    .mods
+                &scraped_mods
                     .iter()
                     .map(|scraped_mod| scraped_mod.nexus_mod_id)
                     .collect::<Vec<i32>>(),
             )
             .await?;
-            let mods_to_create_or_update: Vec<UnsavedMod> = scraped
-                .mods
+            let mods_to_create_or_update: Vec<UnsavedMod> = scraped_mods
                 .iter()
                 .filter(|scraped_mod| {
                     if let Some(processed_mod) = processed_mods.iter().find(|processed_mod| {

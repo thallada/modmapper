@@ -37,7 +37,7 @@ RUST_LOG=mod_mapper=debug
 4. Install
    [`sqlx_cli`](https://github.com/launchbadge/sqlx/tree/master/sqlx-cli) with
    `cargo install sqlx-cli --no-default-features --features postgres`
-5. Run `sqlx migrate --source migrations run` which will run all the database migrations.
+5. Run `sqlx migrate run` which will run all the database migrations.
 6. Get your personal Nexus API token from your profile settings and add it to
    the `.env` file:
 

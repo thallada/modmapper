@@ -42,12 +42,12 @@ struct Args {
     #[argh(option, short = 'e')]
     dump_edits: Option<String>,
 
-    /// file to output the cell mod edit counts over time as json (time_step option required with 
+    /// file to output the cell mod edit counts over time as json (time_step option required with
     /// this option)
     #[argh(option, short = 'E')]
     dump_edits_over_time: Option<String>,
 
-    /// the span of time to group cell edit counts into (day, week, or month) when dumping cell 
+    /// the span of time to group cell edit counts into (day, week, or month) when dumping cell
     /// edits (only relevant for use with dump_edits_over_time option)
     #[argh(option, short = 'T')]
     time_step: Option<TimeStep>,
