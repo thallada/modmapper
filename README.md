@@ -1,5 +1,7 @@
 # modmapper
 
+![healthchecks.io](https://healthchecks.io/badge/2b775ee7-2b5e-45b4-9060-094c91/Qu0gXX0s.svg)
+
 Downloads mods from nexus, parses the plugins inside, and saves data to a postgres database.
 
 ## Development Install
