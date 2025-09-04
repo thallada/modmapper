@@ -66,3 +66,21 @@ For these scripts to run successfully you will need to install rclone and setup 
 - `STATIC_SERVER_FILES_BUCKET`
 - `BACKUP_SERVER_REMOTE`
 - `BACKUP_SERVER_BUCKET`
+
+## Healthchecks.io Monitoring
+
+The scripts are monitored via [healthchecks.io](https://healthchecks.io). It is free to set up, create an account and add a new check for each script with these slugs:
+
+- `modmapper-update`
+- `modmapper-sync`
+- `modmapper-backup`
+
+Then add the project's [ping key which you can generate in the settings](https://healthchecks.io/docs/slug_urls/) to the `.env` file under `HEALTHCHECKS_PING_KEY`.
+
+## Crontab Setup
+
+The scripts can be run on a schedule via cron. To edit the crontab for the current user run `crontab -e` and add these lines to run the scripts at the specified intervals:
+
+```# Run modmapper update script every day at 2 am
+0 2 * * * cd /path/to/modmapper && ./scripts/update.sh && ./scripts/sync.sh && ./scripts/backup.sh
+```
