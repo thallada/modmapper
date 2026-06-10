@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use futures::TryStreamExt;
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::{env, time::Duration};
 use tempfile::tempfile;
@@ -35,10 +35,18 @@ pub async fn get(
         {
             Ok(res) => match res.error_for_status() {
                 Ok(res) => res,
-                Err(err) => {
-                    warn_and_sleep("download_link::get", anyhow!(err), attempt).await;
-                    continue;
-                }
+                Err(err) => match err.status() {
+                    // Permanent client errors (e.g. 403 quarantined file, 404 deleted file)
+                    // will never succeed on retry; return the error so the caller can
+                    // inspect the status and skip the file.
+                    Some(StatusCode::FORBIDDEN | StatusCode::NOT_FOUND | StatusCode::GONE) => {
+                        return Err(anyhow!(err));
+                    }
+                    _ => {
+                        warn_and_sleep("download_link::get", anyhow!(err), attempt).await;
+                        continue;
+                    }
+                },
             },
             Err(err) => {
                 warn_and_sleep("download_link::get", anyhow!(err), attempt).await;

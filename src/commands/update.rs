@@ -210,7 +210,17 @@ pub async fn update(
                     .await;
                     if let Err(err) = &download_link_resp {
                         if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
-                            if reqwest_err.status() == Some(StatusCode::NOT_FOUND) {
+                            // Quarantined (403), deleted (404), or removed (410) files
+                            // will never have a download link, so mark the file as
+                            // processed and skip it.
+                            if matches!(
+                                reqwest_err.status(),
+                                Some(
+                                    StatusCode::FORBIDDEN
+                                        | StatusCode::NOT_FOUND
+                                        | StatusCode::GONE
+                                )
+                            ) {
                                 warn!(
                                     status = ?reqwest_err.status(),
                                     "failed to get download link for file, skipping file"
